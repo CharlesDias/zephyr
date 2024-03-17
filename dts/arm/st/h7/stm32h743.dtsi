@@ -52,6 +52,15 @@
 			status = "disabled";
 		};
 
+		dcmi: video-controller@48020000 {
+			compatible = "st,stm32-dmci";
+			reg = <48020000 0x400>;
+			interrupts = <78 0>;
+			interrupt-names = "dmci";
+			/* See RM0433 page 502 - Table 84. RCC register map and reset values */
+			clocks = <&rcc STM32_CLOCK_BUS_AHB2 0x00000001>;
+		};
+
 		rtc@58004000 {
 			bbram: backup_regs {
 				compatible = "st,stm32-bbram";
