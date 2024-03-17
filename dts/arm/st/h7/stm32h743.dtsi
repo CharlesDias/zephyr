@@ -53,7 +53,7 @@
 		};
 
 		dcmi: video-controller@48020000 {
-			compatible = "st,stm32-dmci";
+			compatible = "st,stm32-dcmi";
 			reg = <48020000 0x400>;
 			interrupts = <78 0>;
 			interrupt-names = "dmci";
