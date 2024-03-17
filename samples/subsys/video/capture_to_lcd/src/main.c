@@ -13,8 +13,6 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main);
 
-#define VIDEO_DEV_SW "VIDEO_SW_GENERATOR"
-
 int main(void)
 {
 	struct video_buffer *buffers[2], *vbuf;
@@ -25,26 +23,16 @@ int main(void)
 	size_t bsize;
 	int i = 0;
 
-	/* Default to software video pattern generator */
-	video = device_get_binding(VIDEO_DEV_SW);
-	if (video == NULL) {
-		LOG_ERR("Video device %s not found", VIDEO_DEV_SW);
+	const struct device *ov_cam_dev = DEVICE_DT_GET(DT_ALIAS(ov_cam));
+
+	if (!device_is_ready(ov_cam_dev)) {
+		LOG_ERR("%s: device not ready.\n", ov_cam_dev->name);
 		return 0;
 	}
 
-	/* But would be better to use a real video device if any */
-#if defined(CONFIG_VIDEO_MCUX_CSI)
-	const struct device *const dev = DEVICE_DT_GET_ONE(nxp_imx_csi);
+	video = ov_cam_dev;
 
-	if (!device_is_ready(dev)) {
-		LOG_ERR("%s: device not ready.\n", dev->name);
-		return 0;
-	}
-
-	video = dev;
-#endif
-
-	printk("- Device name: %s\n", video->name);
+	LOG_INF("- Device name: %s\n", video->name);
 
 	/* Get capabilities */
 	if (video_get_caps(video, VIDEO_EP_OUT, &caps)) {
@@ -72,11 +60,34 @@ int main(void)
 		return 0;
 	}
 
-	printk("- Default format: %c%c%c%c %ux%u\n", (char)fmt.pixelformat,
-	       (char)(fmt.pixelformat >> 8),
-	       (char)(fmt.pixelformat >> 16),
-	       (char)(fmt.pixelformat >> 24),
-	       fmt.width, fmt.height);
+	printk("- Default format: %c%c%c%c %ux%u %u\n", (char)fmt.pixelformat,
+		(char)(fmt.pixelformat >> 8),
+		(char)(fmt.pixelformat >> 16),
+		(char)(fmt.pixelformat >> 24),
+		fmt.width, fmt.height, fmt.pitch);
+
+	/* Set 160x120 format */
+	fmt.width = 160;
+	fmt.height = 120;
+	fmt.pitch = fmt.width * 2;
+
+	/* Set format */
+	if (video_set_format(video, VIDEO_EP_OUT, &fmt)) {
+		LOG_ERR("Unable to set up video format");
+		return 0;
+	}
+
+	/* Get format */
+	if (video_get_format(video, VIDEO_EP_OUT, &fmt)) {
+		LOG_ERR("Unable to retrieve video format");
+		return 0;
+	}
+
+	printk("- New format: %c%c%c%c %ux%u %u\n", (char)fmt.pixelformat,
+		(char)(fmt.pixelformat >> 8),
+		(char)(fmt.pixelformat >> 16),
+		(char)(fmt.pixelformat >> 24),
+		fmt.width, fmt.height, fmt.pitch);
 
 	/* Size to allocate for each buffer */
 	bsize = fmt.pitch * fmt.height;
@@ -107,6 +118,8 @@ int main(void)
 		err = video_dequeue(video, VIDEO_EP_OUT, &vbuf, K_FOREVER);
 		if (err) {
 			LOG_ERR("Unable to dequeue video buf");
+			LOG_ERR("err code %d: %s", err, strerror(-err));
+
 			return 0;
 		}
 
@@ -116,6 +129,7 @@ int main(void)
 		err = video_enqueue(video, VIDEO_EP_OUT, vbuf);
 		if (err) {
 			LOG_ERR("Unable to requeue video buf");
+			LOG_ERR("err code %d: %s", err, strerror(-err));
 			return 0;
 		}
 	}
