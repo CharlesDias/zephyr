@@ -44,6 +44,7 @@
 		spi-flash0 = &w25q64_spi;
 		watchdog0 = &iwdg;
 		sdhc0 = &sdmmc1;
+		ov-cam = &ov2640;
 	};
 };
 
@@ -132,6 +133,20 @@ zephyr_udc0: &usbotg_fs {
 	};
 };
 
+&i2c1 {
+	pinctrl-0 = <&i2c1_scl_pb8 &i2c1_sda_pb9 &mco1_pa8>;
+	pinctrl-names = "default";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+
+	ov2640: ov2640@30 {
+		compatible = "ovti,ov2640";
+		status = "okay";
+		reg = <0x30>;
+		// reset-gpios = <&test_gpio 0 0>;
+	};
+};
+
 &spi1 {
 	pinctrl-0 = <&spi1_sck_pb3 &spi1_miso_pb4 &spi1_mosi_pd7>;
 	cs-gpios = <&gpiod 6 GPIO_ACTIVE_LOW>;
@@ -207,4 +222,11 @@ zephyr_udc0: &usbotg_fs {
 
 &iwdg1 {
 	status = "okay";
+};
+
+&pinctrl{
+	mco1_pa8: mco1_pa8 {
+		pinmux = <STM32_PINMUX('A', 8, AF0)>;
+		slew-rate = "very-high-speed";
+	};
 };
