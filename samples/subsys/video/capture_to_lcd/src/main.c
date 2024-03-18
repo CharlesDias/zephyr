@@ -24,7 +24,8 @@ int main(void)
 	int i = 0;
 	int err;
 
-	const struct device *ov_cam_dev = DEVICE_DT_GET(DT_ALIAS(ov_cam));
+	const struct device *ov_cam_dev = DEVICE_DT_GET_ONE(st_stm32_dcmi);
+	// const struct device *ov_cam_dev = DEVICE_DT_GET(DT_ALIAS(ov_cam));
 
 	if (!device_is_ready(ov_cam_dev)) {
 		LOG_ERR("%s: device not ready.\n", ov_cam_dev->name);
