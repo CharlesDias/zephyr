@@ -22,6 +22,8 @@
 		compatible = "ovti,ov2640";
 		reg = <0x30>;
 		status = "okay";
+		reset-gpios = <&gpiof 2 GPIO_ACTIVE_HIGH>;
+		supply-gpios = <&gpiof 3 GPIO_ACTIVE_HIGH>;
 
 		port {
 			ov2640_ep_out: endpoint {
