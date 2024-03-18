@@ -31,6 +31,8 @@ config VIDEO_BUFFER_POOL_ALIGN
 	int "Alignment of the video pool’s buffer"
 	default 64
 
+source "drivers/video/Kconfig.stm32_dcmi"
+
 source "drivers/video/Kconfig.mcux_csi"
 
 source "drivers/video/Kconfig.sw_generator"

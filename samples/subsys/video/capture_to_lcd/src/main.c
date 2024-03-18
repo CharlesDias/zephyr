@@ -22,6 +22,7 @@ int main(void)
 	unsigned int frame = 0;
 	size_t bsize;
 	int i = 0;
+	int err;
 
 	const struct device *ov_cam_dev = DEVICE_DT_GET(DT_ALIAS(ov_cam));
 
@@ -104,8 +105,10 @@ int main(void)
 	}
 
 	/* Start video capture */
-	if (video_stream_start(video)) {
+	err = video_stream_start(video);
+	if (err) {
 		LOG_ERR("Unable to start capture (interface)");
+		LOG_ERR("err code %d: %s", err, strerror(-err));
 		return 0;
 	}
 
@@ -113,8 +116,6 @@ int main(void)
 
 	/* Grab video frames */
 	while (1) {
-		int err;
-
 		err = video_dequeue(video, VIDEO_EP_OUT, &vbuf, K_FOREVER);
 		if (err) {
 			LOG_ERR("Unable to dequeue video buf");

@@ -59,6 +59,7 @@
 			interrupt-names = "dmci";
 			/* See RM0433 page 502 - Table 84. RCC register map and reset values */
 			clocks = <&rcc STM32_CLOCK_BUS_AHB2 0x00000001>;
+			status = "disabled";
 		};
 
 		rtc@58004000 {

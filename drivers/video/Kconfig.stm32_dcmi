@@ -1,0 +1,13 @@
+# STM32 DCMI driver configuration options
+
+# Copyright (c) 2024 Charles Dias <charlesdias.cd@outlook.com>
+# SPDX-License-Identifier: Apache-2.0
+
+config VIDEO_STM32_DCMI
+	bool "STM32 Digital camera interface (DCMI) driver"
+	default y
+	depends on DT_HAS_ST_STM32_DCMI_ENABLED
+	select USE_STM32_HAL_DCMI
+	# select CACHE_MANAGEMENT if CPU_HAS_DCACHE
+	help
+	  Enable driver for STM32 Digital camera interface periheral.
