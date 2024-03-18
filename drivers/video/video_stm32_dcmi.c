@@ -30,6 +30,7 @@
 LOG_MODULE_REGISTER(video_stm32_dcmi);
 
 struct video_stm32_dcmi_data {
+	const struct device *dev;
 	DCMI_HandleTypeDef hdcmi;
 	struct video_format fmt;
 	// csi_config_t csi_config;
@@ -92,11 +93,35 @@ static int video_stm32_dcmi_dequeue(const struct device *dev,
 	return -EPERM;
 }
 
+static int video_stm32_dcmi_get_caps(const struct device *dev,
+				   enum video_endpoint_id ep,
+				   struct video_caps *caps)
+{
+	const struct video_stm32_dcmi_config *config = dev->config;
+	int err = -ENODEV;
+
+	if (ep != VIDEO_EP_OUT) {
+		return -EINVAL;
+	}
+
+	/* Forward the message to the sensor device */
+	if (config->sensor_dev) {
+		err = video_get_caps(config->sensor_dev, ep, caps);
+	}
+
+	/* NXP MCUX CSI request at least 2 buffer before starting */
+	// FIXME: This value has to be checked
+	caps->min_vbuf_count = 2;
+
+	return err;
+}
+
 static const struct video_driver_api video_stm32_dcmi_driver_api = {
 	.stream_start = video_stm32_dcmi_stream_start,
 	.stream_stop = video_stm32_dcmi_stream_stop,
 	.enqueue = video_stm32_dcmi_enqueue,
 	.dequeue = video_stm32_dcmi_dequeue,
+	.get_caps = video_stm32_dcmi_get_caps,
 };
 
 
@@ -151,6 +176,11 @@ static int video_stm32_dcmi_init_0(const struct device *dev)
 		LOG_ERR("clock control device not ready");
 		return -ENODEV;
 	}
+
+	data->dev = dev;
+	// data->dev.api->enqueue = video_stm32_dcmi_enqueue;
+	// data->dev.api->dequeue = video_stm32_dcmi_dequeue;
+	// data->dev->api.enqueue = video_stm32_dcmi_enqueue;
 
 	/* Não inicializa se descomentar essas linhas /*
 
