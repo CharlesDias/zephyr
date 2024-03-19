@@ -24,15 +24,14 @@ int main(void)
 	int i = 0;
 	int err;
 
-	const struct device *ov_cam_dev = DEVICE_DT_GET_ONE(st_stm32_dcmi);
-	// const struct device *ov_cam_dev = DEVICE_DT_GET(DT_ALIAS(ov_cam));
+	const struct device *cam_dev = DEVICE_DT_GET_ONE(st_stm32_dcmi);
 
-	if (!device_is_ready(ov_cam_dev)) {
-		LOG_ERR("%s: device not ready.\n", ov_cam_dev->name);
+	if (!device_is_ready(cam_dev)) {
+		LOG_ERR("%s: device not ready.\n", cam_dev->name);
 		return 0;
 	}
 
-	video = ov_cam_dev;
+	video = cam_dev;
 
 	LOG_INF("- Device name: %s\n", video->name);
 
