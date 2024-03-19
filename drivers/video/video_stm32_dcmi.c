@@ -33,8 +33,6 @@ struct video_stm32_dcmi_data {
 	const struct device *dev;
 	DCMI_HandleTypeDef hdcmi;
 	struct video_format fmt;
-	// csi_config_t csi_config;
-	// csi_handle_t csi_handle;
 	struct k_fifo fifo_in;
 	struct k_fifo fifo_out;
 	uint32_t pixel_format;
@@ -197,7 +195,7 @@ static const struct video_stm32_dcmi_config video_stm32_dcmi_config_0 = {
 
 static int video_stm32_dcmi_init_0(const struct device *dev)
 {
-	LOG_WRN("init_0 not implemented");
+	LOG_WRN("video_stm32_dcmi_init_0: Initializing %s", dev->name);
 
 	int err;
 	const struct video_stm32_dcmi_config *config = dev->config;
@@ -207,7 +205,9 @@ static int video_stm32_dcmi_init_0(const struct device *dev)
 	/* Configure DT provided pins */
 	err = pinctrl_apply_state(config->pctrl, PINCTRL_STATE_DEFAULT);
 	if (err < 0) {
-		LOG_ERR("DCMI pinctrl setup failed");
+		LOG_ERR("DCMI pinctrl setup failed. \n" \
+			"Error code %d: %s", err, strerror(-err));
+
 		return err;
 	}
 
@@ -217,29 +217,26 @@ static int video_stm32_dcmi_init_0(const struct device *dev)
 	}
 
 	data->dev = dev;
-	// data->dev.api->enqueue = video_stm32_dcmi_enqueue;
-	// data->dev.api->dequeue = video_stm32_dcmi_dequeue;
-	// data->dev->api.enqueue = video_stm32_dcmi_enqueue;
 
-	/* Não inicializa se descomentar essas linhas /*
-
-	// /* Turn on DCMI peripheral clock */
-	// err = clock_control_on(DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE),
-	// 			(clock_control_subsys_t) &config->pclken);
-	// if (err < 0) {
-	// 	LOG_ERR("Could not enable DCMI peripheral clock");
-	// 	return err;
-	// }
+	/* Turn on DCMI peripheral clock */
+	err = clock_control_on(DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE),
+				(clock_control_subsys_t) &config->pclken);
+	if (err < 0) {
+		LOG_ERR("Could not enable DCMI peripheral clock.\n " \
+			"Error code %d: %s", err, strerror(-err));
+		return err;
+	}
 
 	// __HAL_RCC_DCMI_FORCE_RESET();
 	// __HAL_RCC_DCMI_RELEASE_RESET();
 
-	// /* Initialise the LTDC peripheral */
-	// err = HAL_DCMI_Init(&data->hdcmi);
-	// if (err != HAL_OK) {
-	// 	LOG_ERR("DCMI initialization failed");
-	// 	return err;
-	// }
+	/* Initialise the DCMI peripheral */
+	err = HAL_DCMI_Init(&data->hdcmi);
+	if (err != HAL_OK) {
+		LOG_ERR("DCMI initialization failed.\n " \
+			"Error code %d: %s", err, strerror(-err));
+		return err;
+	}
 
 	return 0;
 }
