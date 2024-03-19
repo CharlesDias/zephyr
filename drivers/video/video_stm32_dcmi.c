@@ -37,7 +37,10 @@ struct video_stm32_dcmi_data {
 	// csi_handle_t csi_handle;
 	struct k_fifo fifo_in;
 	struct k_fifo fifo_out;
-	uint32_t pixelformat;
+	uint32_t pixel_format;
+	uint32_t height;
+	uint32_t width;
+	uint32_t pitch;
 	struct k_poll_signal *signal;
 };
 
@@ -47,18 +50,52 @@ struct video_stm32_dcmi_config {
 	const struct device *sensor_dev;
 };
 
-// struct video_sw_generator_data {
-// 	const struct device *dev;
-// 	struct video_format fmt;
-// 	struct k_fifo fifo_in;
-// 	struct k_fifo fifo_out;
-// 	struct k_work_delayable buf_work;
-// 	struct k_work_sync work_sync;
-// 	int pattern;
-// 	bool ctrl_hflip;
-// 	bool ctrl_vflip;
-// 	struct k_poll_signal *signal;
-// };
+static int video_stm32_dcmi_set_fmt(const struct device *dev,
+				  enum video_endpoint_id ep,
+				  struct video_format *fmt)
+{
+	const struct video_stm32_dcmi_config *config = dev->config;
+	struct video_stm32_dcmi_data *data = dev->data;
+
+	if (ep != VIDEO_EP_OUT) {
+		return -EINVAL;
+	}
+
+	data->pixel_format = fmt->pixelformat;
+	data->pitch = fmt->pitch;
+	data->height = fmt->height;
+	data->width = fmt->width;
+
+	if (config->sensor_dev && video_set_format(config->sensor_dev, ep, fmt)) {
+		return -EIO;
+	}
+
+	return 0;
+}
+
+static int video_stm32_dcmi_get_fmt(const struct device *dev,
+				  enum video_endpoint_id ep,
+				  struct video_format *fmt)
+{
+	struct video_stm32_dcmi_data *data = dev->data;
+	const struct video_stm32_dcmi_config *config = dev->config;
+
+	if (fmt == NULL || ep != VIDEO_EP_OUT) {
+		return -EINVAL;
+	}
+
+	if (config->sensor_dev && !video_get_format(config->sensor_dev, ep, fmt)) {
+		/* align DCMI with sensor fmt */
+		return video_stm32_dcmi_set_fmt(dev, ep, fmt);
+	}
+
+	fmt->pixelformat = data->pixel_format;
+	fmt->height = data->height;
+	fmt->width = data->width;
+	fmt->pitch = data->pitch;
+
+	return 0;
+}
 
 static int video_stm32_dcmi_stream_start(const struct device *dev)
 {
@@ -117,6 +154,8 @@ static int video_stm32_dcmi_get_caps(const struct device *dev,
 }
 
 static const struct video_driver_api video_stm32_dcmi_driver_api = {
+	.set_format = video_stm32_dcmi_set_fmt,
+	.get_format = video_stm32_dcmi_get_fmt,
 	.stream_start = video_stm32_dcmi_stream_start,
 	.stream_stop = video_stm32_dcmi_stream_stop,
 	.enqueue = video_stm32_dcmi_enqueue,
