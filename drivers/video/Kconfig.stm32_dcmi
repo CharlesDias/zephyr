@@ -8,6 +8,14 @@ config VIDEO_STM32_DCMI
 	default y
 	depends on DT_HAS_ST_STM32_DCMI_ENABLED
 	select USE_STM32_HAL_DCMI
+	select USE_STM32_HAL_DCMI_EX
+	select USE_STM32_HAL_DMA
+	select USE_STM32_HAL_DMA_EX
+	# select DT_HAS_ST_STM32_DMAMUX_ENABLED/dma
+	# select DT_HAS_ST_STM32_DMA_V1_ENABLED
+	# select DT_HAS_ST_STM32_DMA_V2_ENABLED
+	# select DT_HAS_ST_STM32_DMA_V2BIS_ENABLED
+	# select DT_HAS_ST_STM32_BDMA_ENABLED
 	# select CACHE_MANAGEMENT if CPU_HAS_DCACHE
 	help
 	  Enable driver for STM32 Digital camera interface periheral.

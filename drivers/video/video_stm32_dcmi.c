@@ -25,12 +25,26 @@
 #include <zephyr/sys/barrier.h>
 #include <zephyr/cache.h>
 
+#include <zephyr/drivers/dma.h>
+#include <zephyr/drivers/dma/dma_stm32.h>
+#include <stm32_ll_dma.h>
+// #include <stm32h7xx_hal_dma.h>
+
 #include <zephyr/logging/log.h>
 
 LOG_MODULE_REGISTER(video_stm32_dcmi);
 
+struct dcmi_dma_stream {
+	const struct device *dev;
+	uint32_t channel;
+	uint32_t channel_nb;
+	DMA_TypeDef *reg;
+	struct dma_config cfg;
+};
+
 struct video_stm32_dcmi_data {
 	const struct device *dev;
+	DMA_HandleTypeDef hdma;
 	DCMI_HandleTypeDef hdcmi;
 	struct video_format fmt;
 	struct k_fifo fifo_in;
@@ -40,6 +54,8 @@ struct video_stm32_dcmi_data {
 	uint32_t width;
 	uint32_t pitch;
 	struct k_poll_signal *signal;
+	struct dcmi_dma_stream dma;
+	uint16_t pic[160][120];
 };
 
 struct video_stm32_dcmi_config {
@@ -47,6 +63,88 @@ struct video_stm32_dcmi_config {
 	const struct pinctrl_dev_config *pctrl;
 	const struct device *sensor_dev;
 };
+
+// static int stm32_sdmmc_configure_dma(DMA_HandleTypeDef *handle, struct dcmi_dma_stream *dma)
+// {
+// 	int ret;
+
+// 	if (!device_is_ready(dma->dev)) {
+// 		LOG_ERR("Failed to get dma dev");
+// 		return -ENODEV;
+// 	}
+
+// 	dma->cfg.user_data = handle;
+
+// 	ret = dma_config(dma->dev, dma->channel, &dma->cfg);
+// 	if (ret != 0) {
+// 		LOG_ERR("Failed to conig");
+// 		return ret;
+// 	}
+
+// 	handle->Instance                 = __LL_DMA_GET_STREAM_INSTANCE(dma->reg, dma->channel_nb);
+// 	handle->Init.Channel             = dma->cfg.dma_slot * DMA_CHANNEL_1;
+// 	handle->Init.PeriphInc           = DMA_PINC_DISABLE;
+// 	handle->Init.MemInc              = DMA_MINC_ENABLE;
+// 	handle->Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+// 	handle->Init.MemDataAlignment    = DMA_MDATAALIGN_WORD;
+// 	handle->Init.Mode                = DMA_PFCTRL;
+// 	handle->Init.Priority            = table_priority[dma->cfg.channel_priority],
+// 	handle->Init.FIFOMode            = DMA_FIFOMODE_ENABLE;
+// 	handle->Init.FIFOThreshold       = DMA_FIFO_THRESHOLD_FULL;
+// 	handle->Init.MemBurst            = DMA_MBURST_INC4;
+// 	handle->Init.PeriphBurst         = DMA_PBURST_INC4;
+
+// 	return ret;
+// }
+
+static int video_stm32_dcmi_dma_init(const struct device *dev)
+{
+	struct video_stm32_dcmi_data *data = dev->data;
+	static DMA_HandleTypeDef hdma_handler;
+
+	LOG_WRN("using dma");
+
+	/* Enable DMA1 clock */
+	__HAL_RCC_DMA1_CLK_ENABLE();
+
+	/*** Configure the DMA ***/
+	/* Set the parameters to be configured */
+	hdma_handler.Instance = DMA1_Stream0;
+	hdma_handler.Init.Request = DMA_REQUEST_DCMI;
+	hdma_handler.Init.Direction = DMA_PERIPH_TO_MEMORY;
+	hdma_handler.Init.PeriphInc = DMA_PINC_DISABLE;
+	hdma_handler.Init.MemInc = DMA_MINC_ENABLE;
+	hdma_handler.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+	hdma_handler.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
+	hdma_handler.Init.Mode = DMA_CIRCULAR;
+	hdma_handler.Init.Priority = DMA_PRIORITY_MEDIUM;
+	hdma_handler.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+
+	/* Associate the initialized DMA handle to the DCMI handle */
+	__HAL_LINKDMA(&data->hdcmi, DMA_Handle, hdma_handler);
+
+	/*** Configure the NVIC for DCMI and DMA ***/
+	/* NVIC configuration for DCMI transfer complete interrupt */
+	HAL_NVIC_SetPriority(DCMI_IRQn, 0, 0);
+	HAL_NVIC_EnableIRQ(DCMI_IRQn);
+
+	/* Configure the DMA stream */
+	if(HAL_DMA_DeInit(&hdma_handler) != HAL_OK)
+	{
+		/* Initialization Error */
+		LOG_ERR("DMA deinitialization failed");
+		return -EIO;
+	}
+
+	if (HAL_DMA_Init(&hdma_handler) != HAL_OK)
+	{
+		/* Initialization Error */
+		LOG_ERR("DMA initialization failed");
+		return -EIO;
+	}
+
+	return 0;
+}
 
 static int video_stm32_dcmi_set_fmt(const struct device *dev,
 				  enum video_endpoint_id ep,
@@ -98,6 +196,18 @@ static int video_stm32_dcmi_get_fmt(const struct device *dev,
 static int video_stm32_dcmi_stream_start(const struct device *dev)
 {
 	LOG_WRN("stream_start not implemented");
+
+	struct video_stm32_dcmi_data *data = dev->data;
+
+	if (HAL_DCMI_Start_DMA(&data->hdcmi,DCMI_MODE_CONTINUOUS,
+				(uint32_t)&data->pic, 160 * 120 * 2 / 4) != HAL_OK)
+	// if (HAL_DCMIEx_Start_DMA_MDMA(&data->hdcmi, DCMI_MODE_CONTINUOUS,
+	// 				&data->pic, 160 * 2, 120) != HAL_OK)
+	{
+		/* Initialization Error */
+		LOG_ERR("DCMI DMA start failed");
+		return -EIO;
+	}
 
 	return 0;
 }
@@ -182,6 +292,28 @@ static struct video_stm32_dcmi_data video_stm32_dcmi_data_0 = {
 				.LineSelectStart = DCMI_OELS_ODD,
 		},
 	},
+	// dma = {
+	// 	// .dev = DEVICE_DT_GET(DT_INST_BUS(0)),
+	// 	// .channel = DT_INST_PROP(0, dma_channel),
+	// 	// .channel_nb = DT_INST_PROP(0, dma_channel_number),
+	// 	// .reg = DT_INST_REG_ADDR_BY_NAME(0, dma),
+	// 	// .cfg = {
+	// 	// 	.dma_slot = DT_INST_PROP(0, dma_slot),
+	// 	// 	.channel_priority = DT_INST_PROP(0, dma_priority),
+	// 	// 	.dma_callback = video_stm32_dcmi_dma_cb,
+	// 	// 	.linked_channels = STM32_DMA_HAL_OVERRIDE,
+	// 	// },
+	// 	.dev = DEVICE_DT_GET(DT_INST_BUS(0)),
+	// 	.channel = DT_INST_PROP(0, dma_channel),
+	// 	.channel_nb = DT_INST_PROP(0, dma_channel_number),
+	// 	.reg = DT_INST_REG_ADDR_BY_NAME(0, dma),
+	// 	.cfg = {
+	// 		.dma_slot = DT_INST_PROP(0, dma_slot),
+	// 		.channel_priority = DT_INST_PROP(0, dma_priority),
+	// 		.dma_callback = video_stm32_dcmi_dma_cb,
+	// 		.linked_channels = STM32_DMA_HAL_OVERRIDE,
+	// 	},
+	// },
 };
 
 static const struct video_stm32_dcmi_config video_stm32_dcmi_config_0 = {
@@ -229,6 +361,14 @@ static int video_stm32_dcmi_init_0(const struct device *dev)
 
 	// __HAL_RCC_DCMI_FORCE_RESET();
 	// __HAL_RCC_DCMI_RELEASE_RESET();
+
+	// Initialize DMA to transfer data from DCMI to memory
+	err = video_stm32_dcmi_dma_init(dev);
+	if (err < 0) {
+		LOG_ERR("DCMI DMA initialization failed.\n " \
+			"Error code %d: %s", err, strerror(-err));
+		return err;
+	}
 
 	/* Initialise the DCMI peripheral */
 	err = HAL_DCMI_Init(&data->hdcmi);

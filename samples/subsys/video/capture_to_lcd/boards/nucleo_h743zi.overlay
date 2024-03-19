@@ -40,6 +40,8 @@
 		&dcmi_d0_pc6 &dcmi_d1_pc7 &dcmi_d2_pe0 &dcmi_d3_pe1
 		&dcmi_d4_pe4 &dcmi_d5_pd3 &dcmi_d6_pe5 &dcmi_d7_pe6>;
 	pinctrl-names = "default";
+	// dmas = <&dmamux1 0 37 (STM32_DMA_PERIPH_RX | STM32_DMA_PRIORITY_HIGH)>;
+	// dma-names = "rx";
 
 	port {
 		dcmi_ep_in: endpoint {
@@ -48,6 +50,9 @@
 	};
 };
 
+// &dmamux1 {
+// 	status = "okay";
+// };
 
 &pinctrl{
 
