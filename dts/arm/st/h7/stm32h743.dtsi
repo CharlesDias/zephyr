@@ -54,7 +54,7 @@
 
 		dcmi: video-controller@48020000 {
 			compatible = "st,stm32-dcmi";
-			reg = <48020000 0x400>;
+			reg = <0x48020000 0x400>;
 			interrupts = <78 0>;
 			interrupt-names = "dmci";
 			/* See RM0433 page 502 - Table 84. RCC register map and reset values */
