@@ -909,13 +909,11 @@ static int ov2640_get_fmt(const struct device *dev,
 
 static int ov2640_stream_start(const struct device *dev)
 {
-	LOG_WRN("ov2640_stream_start is empty. Is this implemente?");
 	return 0;
 }
 
 static int ov2640_stream_stop(const struct device *dev)
 {
-	LOG_WRN("ov2640_stream_stop is empty. Is this implemente?");
 	return 0;
 }
 

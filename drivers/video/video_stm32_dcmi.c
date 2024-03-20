@@ -64,43 +64,34 @@ struct video_stm32_dcmi_config {
 	const struct device *sensor_dev;
 };
 
-// static int stm32_sdmmc_configure_dma(DMA_HandleTypeDef *handle, struct dcmi_dma_stream *dma)
-// {
-// 	int ret;
+static void stm32_dcmi_isr(const struct device *dev)
+{
+	LOG_INF("DCMI ISR");
 
-// 	if (!device_is_ready(dma->dev)) {
-// 		LOG_ERR("Failed to get dma dev");
-// 		return -ENODEV;
-// 	}
+	struct video_stm32_dcmi_data *data = dev->data;
+	struct video_buffer *vbuf;
 
-// 	dma->cfg.user_data = handle;
+	vbuf = k_fifo_get(&data->fifo_in, K_NO_WAIT);
+	if (vbuf == NULL) {
+		LOG_ERR("No buffer available");
+		goto out;
+	}
 
-// 	ret = dma_config(dma->dev, dma->channel, &dma->cfg);
-// 	if (ret != 0) {
-// 		LOG_ERR("Failed to conig");
-// 		return ret;
-// 	}
+	vbuf->buffer = (uint8_t*)&data->pic;
+	vbuf->timestamp = k_uptime_get_32();
 
-// 	handle->Instance                 = __LL_DMA_GET_STREAM_INSTANCE(dma->reg, dma->channel_nb);
-// 	handle->Init.Channel             = dma->cfg.dma_slot * DMA_CHANNEL_1;
-// 	handle->Init.PeriphInc           = DMA_PINC_DISABLE;
-// 	handle->Init.MemInc              = DMA_MINC_ENABLE;
-// 	handle->Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
-// 	handle->Init.MemDataAlignment    = DMA_MDATAALIGN_WORD;
-// 	handle->Init.Mode                = DMA_PFCTRL;
-// 	handle->Init.Priority            = table_priority[dma->cfg.channel_priority],
-// 	handle->Init.FIFOMode            = DMA_FIFOMODE_ENABLE;
-// 	handle->Init.FIFOThreshold       = DMA_FIFO_THRESHOLD_FULL;
-// 	handle->Init.MemBurst            = DMA_MBURST_INC4;
-// 	handle->Init.PeriphBurst         = DMA_PBURST_INC4;
+	k_fifo_put(&data->fifo_out, vbuf);
 
-// 	return ret;
-// }
+out:
+	HAL_DCMI_IRQHandler(&data->hdcmi);
+	HAL_DCMI_Suspend(&data->hdcmi);
+}
 
 static int video_stm32_dcmi_dma_init(const struct device *dev)
 {
 	struct video_stm32_dcmi_data *data = dev->data;
 	static DMA_HandleTypeDef hdma_handler;
+	HAL_StatusTypeDef ret;
 
 	LOG_WRN("using dma");
 
@@ -123,10 +114,6 @@ static int video_stm32_dcmi_dma_init(const struct device *dev)
 	/* Associate the initialized DMA handle to the DCMI handle */
 	__HAL_LINKDMA(&data->hdcmi, DMA_Handle, hdma_handler);
 
-	/*** Configure the NVIC for DCMI and DMA ***/
-	/* NVIC configuration for DCMI transfer complete interrupt */
-	HAL_NVIC_SetPriority(DCMI_IRQn, 0, 0);
-	HAL_NVIC_EnableIRQ(DCMI_IRQn);
 
 	/* Configure the DMA stream */
 	if(HAL_DMA_DeInit(&hdma_handler) != HAL_OK)
@@ -142,6 +129,22 @@ static int video_stm32_dcmi_dma_init(const struct device *dev)
 		LOG_ERR("DMA initialization failed");
 		return -EIO;
 	}
+
+	/* Delay of 200ms to allow the camera to start */
+	k_sleep(K_MSEC(200));
+
+	/* Start the DCMI capture */
+	// ret = HAL_DCMIEx_Start_DMA_MDMA(&data->hdcmi, DCMI_MODE_CONTINUOUS,
+	// 				&data->pic, 160 * 2, 120);
+
+	// ret = HAL_DCMI_Start_DMA(&data->hdcmi,DCMI_MODE_CONTINUOUS,
+	// 			(uint32_t)&data->pic, 160 * 120 * 2 / 4);
+	// if (ret != HAL_OK)
+	// {
+	// 	/* Initialization Error */
+	// 	LOG_ERR("DCMI DMA start failed");
+	// 	return -EIO;
+	// }
 
 	return 0;
 }
@@ -195,17 +198,30 @@ static int video_stm32_dcmi_get_fmt(const struct device *dev,
 
 static int video_stm32_dcmi_stream_start(const struct device *dev)
 {
-	LOG_WRN("stream_start not implemented");
+	LOG_WRN("Start stream capture");
 
+	const struct video_stm32_dcmi_config *config = dev->config;
 	struct video_stm32_dcmi_data *data = dev->data;
+	HAL_StatusTypeDef ret;
 
-	if (HAL_DCMI_Start_DMA(&data->hdcmi,DCMI_MODE_CONTINUOUS,
-				(uint32_t)&data->pic, 160 * 120 * 2 / 4) != HAL_OK)
-	// if (HAL_DCMIEx_Start_DMA_MDMA(&data->hdcmi, DCMI_MODE_CONTINUOUS,
-	// 				&data->pic, 160 * 2, 120) != HAL_OK)
+	ret = HAL_DCMI_Start_DMA(&data->hdcmi,DCMI_MODE_CONTINUOUS,
+				(uint32_t)&data->pic, 160 * 120 * 2 / 4);
+	if (ret != HAL_OK)
 	{
 		/* Initialization Error */
 		LOG_ERR("DCMI DMA start failed");
+		return -EIO;
+	}
+
+	// ret = HAL_DCMI_Resume(&data->hdcmi);
+	// if (ret != HAL_OK)
+	// {
+	// 	/* Initialization Error */
+	// 	LOG_ERR("DCMI resume failed");
+	// 	return -EIO;
+	// }
+
+	if (config->sensor_dev && video_stream_start(config->sensor_dev)) {
 		return -EIO;
 	}
 
@@ -214,18 +230,58 @@ static int video_stm32_dcmi_stream_start(const struct device *dev)
 
 static int video_stm32_dcmi_stream_stop(const struct device *dev)
 {
-	LOG_WRN("stream_stop not implemented");
+	LOG_WRN("Stop stream capture");
 
-	return -EPERM;
+	const struct video_stm32_dcmi_config *config = dev->config;
+	struct video_stm32_dcmi_data *data = dev->data;
+	HAL_StatusTypeDef ret;
+
+	ret = HAL_DCMI_Stop(&data->hdcmi);
+	if (ret != HAL_OK)
+	{
+		/* Initialization Error */
+		LOG_ERR("DCMI stop failed");
+		return -EIO;
+	}
+
+	if (config->sensor_dev && video_stream_stop(config->sensor_dev)) {
+		return -EIO;
+	}
+
+	return 0;
 }
 
 static int video_stm32_dcmi_enqueue(const struct device *dev,
 				  enum video_endpoint_id ep,
 				  struct video_buffer *vbuf)
 {
-	LOG_WRN("enqueue not implemented");
+	LOG_INF("Enqueue buffer");
+	// const struct video_stm32_dcmi_config *config = dev->config;
+	struct video_stm32_dcmi_data *data = dev->data;
+	unsigned int to_read;
+	HAL_StatusTypeDef ret;
 
-	return -EPERM;
+	if (ep != VIDEO_EP_OUT) {
+		return -EINVAL;
+	}
+
+	ret = HAL_DCMI_Resume(&data->hdcmi);
+	if (ret != HAL_OK)
+	{
+		/* Initialization Error */
+		LOG_ERR("DCMI resume failed");
+		return -EIO;
+	}
+
+	memset(&data->pic, 0, sizeof(data->pic));
+
+	to_read = data->pitch * data->height;
+	vbuf->bytesused = to_read;
+	vbuf->buffer = (uint8_t*)&data->pic;
+
+	k_fifo_put(&data->fifo_in, vbuf);
+
+	return 0;
 }
 
 static int video_stm32_dcmi_dequeue(const struct device *dev,
@@ -233,9 +289,19 @@ static int video_stm32_dcmi_dequeue(const struct device *dev,
 				  struct video_buffer **vbuf,
 				  k_timeout_t timeout)
 {
-	LOG_WRN("dequeue not implemented");
+	LOG_INF("Dequeue buffer");
+	struct video_stm32_dcmi_data *data = dev->data;
 
-	return -EPERM;
+	if (ep != VIDEO_EP_OUT) {
+		return -EINVAL;
+	}
+
+	*vbuf = k_fifo_get(&data->fifo_out, timeout);
+	if (*vbuf == NULL) {
+		return -EAGAIN;
+	}
+
+	return 0;
 }
 
 static int video_stm32_dcmi_get_caps(const struct device *dev,
@@ -275,7 +341,7 @@ static const struct video_driver_api video_stm32_dcmi_driver_api = {
 #if 1 /* Unique Instance */
 PINCTRL_DT_INST_DEFINE(0);
 
-static struct video_stm32_dcmi_data video_stm32_dcmi_data_0 = {
+static struct video_stm32_dcmi_data video_stm32_dcmi_data = {
 	.hdcmi = {
 		.Instance = (DCMI_TypeDef *) DT_INST_REG_ADDR(0),
 		.Init = {
@@ -316,7 +382,7 @@ static struct video_stm32_dcmi_data video_stm32_dcmi_data_0 = {
 	// },
 };
 
-static const struct video_stm32_dcmi_config video_stm32_dcmi_config_0 = {
+static const struct video_stm32_dcmi_config video_stm32_dcmi_config = {
 	.pclken = {
 		.enr = DT_INST_CLOCKS_CELL(0, bits),
 		.bus = DT_INST_CLOCKS_CELL(0, bus)
@@ -325,7 +391,7 @@ static const struct video_stm32_dcmi_config video_stm32_dcmi_config_0 = {
 	.sensor_dev = DEVICE_DT_GET(DT_INST_PHANDLE(0, sensor)),
 };
 
-static int video_stm32_dcmi_init_0(const struct device *dev)
+static int video_stm32_dcmi_init(const struct device *dev)
 {
 	LOG_WRN("video_stm32_dcmi_init_0: Initializing %s", dev->name);
 
@@ -349,6 +415,10 @@ static int video_stm32_dcmi_init_0(const struct device *dev)
 	}
 
 	data->dev = dev;
+	memset(&data->pic, 0, sizeof(data->pic));
+
+	k_fifo_init(&data->fifo_in);
+	k_fifo_init(&data->fifo_out);
 
 	/* Turn on DCMI peripheral clock */
 	err = clock_control_on(DEVICE_DT_GET(STM32_CLOCK_CONTROL_NODE),
@@ -370,6 +440,11 @@ static int video_stm32_dcmi_init_0(const struct device *dev)
 		return err;
 	}
 
+	/* Connect the DCMI interrupt */
+	IRQ_CONNECT(DT_INST_IRQN(0), DT_INST_IRQ(0, priority),
+		stm32_dcmi_isr, DEVICE_DT_INST_GET(0), 0);
+	irq_enable(DT_INST_IRQN(0));
+
 	/* Initialise the DCMI peripheral */
 	err = HAL_DCMI_Init(&data->hdcmi);
 	if (err != HAL_OK) {
@@ -386,9 +461,9 @@ static int video_stm32_dcmi_init_0(const struct device *dev)
  * necessary since the clock to the camera is provided by the
  * CSI peripheral.
  */
-DEVICE_DT_INST_DEFINE(0, &video_stm32_dcmi_init_0,
-		    NULL, &video_stm32_dcmi_data_0,
-		    &video_stm32_dcmi_config_0,
+DEVICE_DT_INST_DEFINE(0, &video_stm32_dcmi_init,
+		    NULL, &video_stm32_dcmi_data,
+		    &video_stm32_dcmi_config,
 		    POST_KERNEL, CONFIG_VIDEO_INIT_PRIORITY,
 		    &video_stm32_dcmi_driver_api);
 #endif
