@@ -15,6 +15,22 @@ LOG_MODULE_REGISTER(main);
 
 #define CHUNK_SIZE 16  // Size of each chunk in bytes
 
+void print_buffer(struct video_buffer *vbuf, size_t size) {
+	uint8_t *buffer_ptr = vbuf->buffer;
+	size_t remaining_bytes = vbuf->bytesused;
+	// Send the buffer through the printk
+	while(remaining_bytes > 0) {
+		size_t chunk_size = remaining_bytes < size ? remaining_bytes : size;
+		for(int i = 0; i < chunk_size; i++)
+		{
+			printk("%02x ", *buffer_ptr);
+			buffer_ptr++;
+		}
+		printk("\n");
+		remaining_bytes -= chunk_size;
+	}
+}
+
 int main(void)
 {
 	struct video_buffer *buffers[2], *vbuf;
@@ -117,7 +133,8 @@ int main(void)
 	printk("Capture started\n");
 
 	/* Grab video frames */
-	// while (1) {
+	// while (1)
+	for(int j = 0; j < 3; j++)  // Limit to 10 frames
 	{
 		err = video_dequeue(video, VIDEO_EP_OUT, &vbuf, K_FOREVER);
 		if (err) {
@@ -132,27 +149,22 @@ int main(void)
 		printk("\rGot frame %u! size: %u; timestamp %u ms\n",
 		       frame++, vbuf->bytesused, vbuf->timestamp);
 
-		{
-			uint8_t *buffer_ptr = vbuf->buffer;
-			size_t remaining_bytes = vbuf->bytesused;
-			// Send the buffer through the printk
-			while(remaining_bytes > 0) {
-				size_t chunk_size = remaining_bytes < CHUNK_SIZE ? remaining_bytes : CHUNK_SIZE;
-				for(int i = 0; i < chunk_size; i++)
-				{
-					printk("%02x ", *buffer_ptr);
-					buffer_ptr++;
-				}
-				printk("\n");
-				remaining_bytes -= chunk_size;
-			}
+		// Print the buffer
+		print_buffer(vbuf, CHUNK_SIZE);
+
+		err = video_enqueue(video, VIDEO_EP_OUT, vbuf);
+		if (err) {
+			LOG_ERR("Unable to requeue video buf");
+			LOG_ERR("err code %d: %s", err, strerror(-err));
+			return 0;
 		}
 
-		// err = video_enqueue(video, VIDEO_EP_OUT, vbuf);
-		// if (err) {
-		// 	LOG_ERR("Unable to requeue video buf");
-		// 	LOG_ERR("err code %d: %s", err, strerror(-err));
-		// 	return 0;
-		// }
+		err = video_stream_start(video);
+		if (err) {
+			LOG_ERR("Unable to start capture (interface)");
+			LOG_ERR("err code %d: %s", err, strerror(-err));
+			return 0;
+		}
 	}
+	video_stream_stop(video);
 }
