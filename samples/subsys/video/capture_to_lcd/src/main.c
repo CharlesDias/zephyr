@@ -13,6 +13,8 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(main);
 
+#define CHUNK_SIZE 16  // Size of each chunk in bytes
+
 int main(void)
 {
 	struct video_buffer *buffers[2], *vbuf;
@@ -115,7 +117,8 @@ int main(void)
 	printk("Capture started\n");
 
 	/* Grab video frames */
-	while (1) {
+	// while (1) {
+	{
 		err = video_dequeue(video, VIDEO_EP_OUT, &vbuf, K_FOREVER);
 		if (err) {
 			LOG_ERR("Unable to dequeue video buf");
@@ -124,14 +127,32 @@ int main(void)
 			return 0;
 		}
 
-		printk("\rGot frame %u! size: %u; timestamp %u ms",
+		video_stream_stop(video);
+
+		printk("\rGot frame %u! size: %u; timestamp %u ms\n",
 		       frame++, vbuf->bytesused, vbuf->timestamp);
 
-		err = video_enqueue(video, VIDEO_EP_OUT, vbuf);
-		if (err) {
-			LOG_ERR("Unable to requeue video buf");
-			LOG_ERR("err code %d: %s", err, strerror(-err));
-			return 0;
+		{
+			uint8_t *buffer_ptr = vbuf->buffer;
+			size_t remaining_bytes = vbuf->bytesused;
+			// Send the buffer through the printk
+			while(remaining_bytes > 0) {
+				size_t chunk_size = remaining_bytes < CHUNK_SIZE ? remaining_bytes : CHUNK_SIZE;
+				for(int i = 0; i < chunk_size; i++)
+				{
+					printk("%02x ", *buffer_ptr);
+					buffer_ptr++;
+				}
+				printk("\n");
+				remaining_bytes -= chunk_size;
+			}
 		}
+
+		// err = video_enqueue(video, VIDEO_EP_OUT, vbuf);
+		// if (err) {
+		// 	LOG_ERR("Unable to requeue video buf");
+		// 	LOG_ERR("err code %d: %s", err, strerror(-err));
+		// 	return 0;
+		// }
 	}
 }

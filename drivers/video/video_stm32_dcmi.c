@@ -64,6 +64,38 @@ struct video_stm32_dcmi_config {
 	const struct device *sensor_dev;
 };
 
+// Define the image dimensions
+#define WIDTH 160
+#define HEIGHT 120
+
+// Define the color bar
+#define RED   0xF800
+#define GREEN 0x07E0
+#define BLUE  0x001F
+#define YELLOW (RED | GREEN)
+#define CYAN (GREEN | BLUE)
+#define MAGENTA (RED | BLUE)
+#define WHITE (RED | GREEN | BLUE)
+#define BLACK 0x0000
+
+uint16_t color_bar[8] = {RED, GREEN, BLUE, YELLOW, CYAN, MAGENTA, WHITE, BLACK};
+
+void generate_color_bar_image(uint16_t *image_data) {
+    // Check if the memory allocation was successful
+    if (image_data == NULL) {
+        printf("Failed to allocate memory for image data\n");
+        return;
+    }
+
+    // Fill the array with the color bar
+    for (int y = 0; y < HEIGHT; y++) {
+        for (int x = 0; x < WIDTH; x++) {
+            int color_index = (x * 8) / WIDTH;
+            image_data[y * WIDTH + x] = color_bar[color_index];
+        }
+    }
+}
+
 static void stm32_dcmi_isr(const struct device *dev)
 {
 	LOG_INF("DCMI ISR");
@@ -73,9 +105,12 @@ static void stm32_dcmi_isr(const struct device *dev)
 
 	vbuf = k_fifo_get(&data->fifo_in, K_NO_WAIT);
 	if (vbuf == NULL) {
-		LOG_ERR("No buffer available");
+		// LOG_ERR("No buffer available");
 		goto out;
 	}
+
+	// Generate the color bar image to test the fifo and send it to the fifo_out
+	generate_color_bar_image((uint16_t*)&data->pic);
 
 	vbuf->buffer = (uint8_t*)&data->pic;
 	vbuf->timestamp = k_uptime_get_32();
