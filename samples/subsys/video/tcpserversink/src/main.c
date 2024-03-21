@@ -40,7 +40,34 @@ int main(void)
 	struct video_buffer *buffers[2], *vbuf;
 	int i, ret, sock, client;
 	struct video_format fmt;
-	const struct device *const video = DEVICE_DT_GET_ONE(nxp_imx_csi);
+	const struct device *video;
+
+#if defined(CONFIG_VIDEO_MCUX_CSI)
+	const struct device *const dev = DEVICE_DT_GET_ONE(nxp_imx_csi);
+
+	if (!device_is_ready(dev)) {
+		LOG_ERR("%s: device not ready.\n", dev->name);
+		return 0;
+	}
+
+	video = dev;
+#elif defined(CONFIG_VIDEO_STM32_DCMI)
+	const struct device *const dev = DEVICE_DT_GET_ONE(st_stm32_dcmi);
+
+	if (!device_is_ready(dev)) {
+		LOG_ERR("%s: device not ready.\n", dev->name);
+		return 0;
+	}
+
+	video = dev;
+#endif
+
+	if (video == NULL) {
+		LOG_ERR("Video device not found");
+		return 0;
+	}
+
+	printk("- Device name: %s\n", video->name);
 
 	/* Prepare Network */
 	(void)memset(&addr, 0, sizeof(addr));
@@ -82,6 +109,31 @@ int main(void)
 	       (char)fmt.pixelformat, (char)(fmt.pixelformat >> 8),
 	       (char)(fmt.pixelformat >> 16), (char)(fmt.pixelformat >> 24),
 	       fmt.width, fmt.height);
+
+#if defined(CONFIG_VIDEO_STM32_DCMI)
+	// Set format to 160x120 due to the memory limitation
+	fmt.width = 160;
+	fmt.height = 120;
+	fmt.pitch = fmt.width * 2;
+
+	/* Set format */
+	if (video_set_format(video, VIDEO_EP_OUT, &fmt)) {
+		LOG_ERR("Unable to set up video format");
+		return 0;
+	}
+
+	/* Get format */
+	if (video_get_format(video, VIDEO_EP_OUT, &fmt)) {
+		LOG_ERR("Unable to retrieve video format");
+		return 0;
+	}
+
+	printk("- New format: %c%c%c%c %ux%u %u\n", (char)fmt.pixelformat,
+		(char)(fmt.pixelformat >> 8),
+		(char)(fmt.pixelformat >> 16),
+		(char)(fmt.pixelformat >> 24),
+		fmt.width, fmt.height, fmt.pitch);
+#endif
 
 	/* Alloc Buffers */
 	for (i = 0; i < ARRAY_SIZE(buffers); i++) {
