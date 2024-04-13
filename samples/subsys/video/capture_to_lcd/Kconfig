@@ -1,0 +1,9 @@
+source "Kconfig.zephyr"
+
+config VIDEO_WIDTH
+	int "Define the width of the video"
+	default 160
+
+config VIDEO_HEIGHT
+	int "Define the height of the video"
+	default 120
