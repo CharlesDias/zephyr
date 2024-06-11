@@ -17,104 +17,26 @@ LOG_MODULE_REGISTER(net_mqtt_publisher_sample, LOG_LEVEL_DBG);
 
 #include "config.h"
 
-#if defined(CONFIG_USERSPACE)
-#include <zephyr/app_memory/app_memdomain.h>
-K_APPMEM_PARTITION_DEFINE(app_partition);
-struct k_mem_domain app_domain;
-#define APP_BMEM K_APP_BMEM(app_partition)
-#define APP_DMEM K_APP_DMEM(app_partition)
-#else
-#define APP_BMEM
-#define APP_DMEM
-#endif
-
 /* Buffers for MQTT client. */
-static APP_BMEM uint8_t rx_buffer[APP_MQTT_BUFFER_SIZE];
-static APP_BMEM uint8_t tx_buffer[APP_MQTT_BUFFER_SIZE];
-
-#if defined(CONFIG_MQTT_LIB_WEBSOCKET)
-/* Making RX buffer large enough that the full IPv6 packet can fit into it */
-#define MQTT_LIB_WEBSOCKET_RECV_BUF_LEN 1280
-
-/* Websocket needs temporary buffer to store partial packets */
-static APP_BMEM uint8_t temp_ws_rx_buf[MQTT_LIB_WEBSOCKET_RECV_BUF_LEN];
-#endif
+static uint8_t rx_buffer[APP_MQTT_BUFFER_SIZE];
+static uint8_t tx_buffer[APP_MQTT_BUFFER_SIZE];
 
 /* The mqtt client struct */
-static APP_BMEM struct mqtt_client client_ctx;
+static struct mqtt_client client_ctx;
 
 /* MQTT Broker details. */
-static APP_BMEM struct sockaddr_storage broker;
+static struct sockaddr_storage broker;
 
-#if defined(CONFIG_SOCKS)
-static APP_BMEM struct sockaddr socks5_proxy;
-#endif
+static struct pollfd fds[1];
+static int nfds;
 
-static APP_BMEM struct pollfd fds[1];
-static APP_BMEM int nfds;
-
-static APP_BMEM bool connected;
-
-#if defined(CONFIG_MQTT_LIB_TLS)
-
-#include "test_certs.h"
-
-#define TLS_SNI_HOSTNAME "localhost"
-#define APP_CA_CERT_TAG 1
-#define APP_PSK_TAG 2
-
-static APP_DMEM sec_tag_t m_sec_tags[] = {
-#if defined(MBEDTLS_X509_CRT_PARSE_C) || defined(CONFIG_NET_SOCKETS_OFFLOAD)
-		APP_CA_CERT_TAG,
-#endif
-#if defined(MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED)
-		APP_PSK_TAG,
-#endif
-};
-
-static int tls_init(void)
-{
-	int err = -EINVAL;
-
-#if defined(MBEDTLS_X509_CRT_PARSE_C) || defined(CONFIG_NET_SOCKETS_OFFLOAD)
-	err = tls_credential_add(APP_CA_CERT_TAG, TLS_CREDENTIAL_CA_CERTIFICATE,
-				 ca_certificate, sizeof(ca_certificate));
-	if (err < 0) {
-		LOG_ERR("Failed to register public certificate: %d", err);
-		return err;
-	}
-#endif
-
-#if defined(MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED)
-	err = tls_credential_add(APP_PSK_TAG, TLS_CREDENTIAL_PSK,
-				 client_psk, sizeof(client_psk));
-	if (err < 0) {
-		LOG_ERR("Failed to register PSK: %d", err);
-		return err;
-	}
-
-	err = tls_credential_add(APP_PSK_TAG, TLS_CREDENTIAL_PSK_ID,
-				 client_psk_id, sizeof(client_psk_id) - 1);
-	if (err < 0) {
-		LOG_ERR("Failed to register PSK ID: %d", err);
-	}
-#endif
-
-	return err;
-}
-
-#endif /* CONFIG_MQTT_LIB_TLS */
+static bool connected;
 
 static void prepare_fds(struct mqtt_client *client)
 {
 	if (client->transport.type == MQTT_TRANSPORT_NON_SECURE) {
 		fds[0].fd = client->transport.tcp.sock;
 	}
-#if defined(CONFIG_MQTT_LIB_TLS)
-	else if (client->transport.type == MQTT_TRANSPORT_SECURE) {
-		fds[0].fd = client->transport.tls.sock;
-	}
-#endif
 
 	fds[0].events = POLLIN;
 	nfds = 1;
@@ -215,28 +137,16 @@ void mqtt_evt_handler(struct mqtt_client *const client,
 
 static char *get_mqtt_payload(enum mqtt_qos qos)
 {
-#if APP_BLUEMIX_TOPIC
-	static APP_BMEM char payload[30];
-
-	snprintk(payload, sizeof(payload), "{d:{temperature:%d}}",
-		 sys_rand8_get());
-#else
-	static APP_DMEM char payload[] = "DOORS:OPEN_QoSx";
+	static char payload[] = "DOORS:OPEN_QoSx";
 
 	payload[strlen(payload) - 1] = '0' + qos;
-#endif
 
 	return payload;
 }
 
 static char *get_mqtt_topic(void)
 {
-#if APP_BLUEMIX_TOPIC
-	return "iot-2/type/"BLUEMIX_DEVTYPE"/id/"BLUEMIX_DEVID
-	       "/evt/"BLUEMIX_EVENT"/fmt/"BLUEMIX_FORMAT;
-#else
 	return "VIRTUS-CC";
-#endif
 }
 
 static int publish(struct mqtt_client *client, enum mqtt_qos qos)
@@ -264,34 +174,11 @@ static int publish(struct mqtt_client *client, enum mqtt_qos qos)
 
 static void broker_init(void)
 {
-#if defined(CONFIG_NET_IPV6)
-	struct sockaddr_in6 *broker6 = (struct sockaddr_in6 *)&broker;
-
-	broker6->sin6_family = AF_INET6;
-	broker6->sin6_port = htons(SERVER_PORT);
-	inet_pton(AF_INET6, SERVER_ADDR, &broker6->sin6_addr);
-
-#if defined(CONFIG_SOCKS)
-	struct sockaddr_in6 *proxy6 = (struct sockaddr_in6 *)&socks5_proxy;
-
-	proxy6->sin6_family = AF_INET6;
-	proxy6->sin6_port = htons(SOCKS5_PROXY_PORT);
-	inet_pton(AF_INET6, SOCKS5_PROXY_ADDR, &proxy6->sin6_addr);
-#endif
-#else
 	struct sockaddr_in *broker4 = (struct sockaddr_in *)&broker;
 
 	broker4->sin_family = AF_INET;
 	broker4->sin_port = htons(SERVER_PORT);
 	inet_pton(AF_INET, SERVER_ADDR, &broker4->sin_addr);
-#if defined(CONFIG_SOCKS)
-	struct sockaddr_in *proxy4 = (struct sockaddr_in *)&socks5_proxy;
-
-	proxy4->sin_family = AF_INET;
-	proxy4->sin_port = htons(SOCKS5_PROXY_PORT);
-	inet_pton(AF_INET, SOCKS5_PROXY_ADDR, &proxy4->sin_addr);
-#endif
-#endif
 }
 
 static void client_init(struct mqtt_client *client)
@@ -316,48 +203,7 @@ static void client_init(struct mqtt_client *client)
 	client->tx_buf_size = sizeof(tx_buffer);
 
 	/* MQTT transport configuration */
-#if defined(CONFIG_MQTT_LIB_TLS)
-#if defined(CONFIG_MQTT_LIB_WEBSOCKET)
-	client->transport.type = MQTT_TRANSPORT_SECURE_WEBSOCKET;
-#else
-	client->transport.type = MQTT_TRANSPORT_SECURE;
-#endif
-
-	struct mqtt_sec_config *tls_config = &client->transport.tls.config;
-
-	tls_config->peer_verify = TLS_PEER_VERIFY_REQUIRED;
-	tls_config->cipher_list = NULL;
-	tls_config->sec_tag_list = m_sec_tags;
-	tls_config->sec_tag_count = ARRAY_SIZE(m_sec_tags);
-#if defined(MBEDTLS_X509_CRT_PARSE_C) || defined(CONFIG_NET_SOCKETS_OFFLOAD)
-	tls_config->hostname = TLS_SNI_HOSTNAME;
-#else
-	tls_config->hostname = NULL;
-#endif
-
-#else
-#if defined(CONFIG_MQTT_LIB_WEBSOCKET)
-	client->transport.type = MQTT_TRANSPORT_NON_SECURE_WEBSOCKET;
-#else
 	client->transport.type = MQTT_TRANSPORT_NON_SECURE;
-#endif
-#endif
-
-#if defined(CONFIG_MQTT_LIB_WEBSOCKET)
-	client->transport.websocket.config.host = SERVER_ADDR;
-	client->transport.websocket.config.url = "/mqtt";
-	client->transport.websocket.config.tmp_buf = temp_ws_rx_buf;
-	client->transport.websocket.config.tmp_buf_len =
-						sizeof(temp_ws_rx_buf);
-	client->transport.websocket.timeout = 5 * MSEC_PER_SEC;
-#endif
-
-#if defined(CONFIG_SOCKS)
-	mqtt_client_set_proxy(client, &socks5_proxy,
-			      socks5_proxy.sa_family == AF_INET ?
-			      sizeof(struct sockaddr_in) :
-			      sizeof(struct sockaddr_in6));
-#endif
 }
 
 /* In this routine we block until the connected variable is 1 */
@@ -498,52 +344,9 @@ static int start_app(void)
 	return r;
 }
 
-#if defined(CONFIG_USERSPACE)
-#define STACK_SIZE 2048
-
-#if defined(CONFIG_NET_TC_THREAD_COOPERATIVE)
-#define THREAD_PRIORITY K_PRIO_COOP(CONFIG_NUM_COOP_PRIORITIES - 1)
-#else
-#define THREAD_PRIORITY K_PRIO_PREEMPT(8)
-#endif
-
-K_THREAD_DEFINE(app_thread, STACK_SIZE,
-		start_app, NULL, NULL, NULL,
-		THREAD_PRIORITY, K_USER, -1);
-
-static K_HEAP_DEFINE(app_mem_pool, 1024 * 2);
-#endif
-
 int main(void)
 {
-#if defined(CONFIG_MQTT_LIB_TLS)
-	int rc;
-
-	rc = tls_init();
-	PRINT_RESULT("tls_init", rc);
-#endif
-
-#if defined(CONFIG_USERSPACE)
-	int ret;
-
-	struct k_mem_partition *parts[] = {
-#if Z_LIBC_PARTITION_EXISTS
-		&z_libc_partition,
-#endif
-		&app_partition
-	};
-
-	ret = k_mem_domain_init(&app_domain, ARRAY_SIZE(parts), parts);
-	__ASSERT(ret == 0, "k_mem_domain_init() failed %d", ret);
-	ARG_UNUSED(ret);
-
-	k_mem_domain_add_thread(&app_domain, app_thread);
-	k_thread_heap_assign(app_thread, &app_mem_pool);
-
-	k_thread_start(app_thread);
-	k_thread_join(app_thread, K_FOREVER);
-#else
 	exit(start_app());
-#endif
+
 	return 0;
 }
