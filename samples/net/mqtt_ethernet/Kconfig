@@ -5,6 +5,20 @@
 
 mainmenu "Networking mqtt_publisher sample application"
 
+config NET_DEFINED_BROKER_IPV4_ADDR
+	bool "Use a predefined IPv4 address for the MQTT broker"
+	default n
+	help
+	  Use a predefined IPv4 address for the MQTT broker. If this option
+	  is not selected, the user will be prompted to enter the IPv4 address
+	  of the MQTT broker.
+
+config NET_MQTT_BROKER_IPV4_ADDR
+	string "IPv4 address of the MQTT broker"
+	default ""
+	help
+	  IPv4 address of the MQTT broker to connect to.
+
 config NET_SAMPLE_APP_MAX_ITERATIONS
 	int "Number of times to Publish sample MQTT messages"
 	default 500

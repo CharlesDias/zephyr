@@ -346,6 +346,10 @@ static int start_app(void)
 
 int main(void)
 {
+	LOG_INF("Starting MQTT Ethernet sample");
+	LOG_INF("Device IPv4 Address: %s", ZEPHYR_ADDR);
+	LOG_INF("Connecting to %s:%d", SERVER_ADDR, SERVER_PORT);
+
 	exit(start_app());
 
 	return 0;
