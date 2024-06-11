@@ -5,19 +5,18 @@
 
 mainmenu "Networking mqtt_publisher sample application"
 
-config NET_DEFINED_BROKER_IPV4_ADDR
-	bool "Use a predefined IPv4 address for the MQTT broker"
-	default n
+config ETHERNET_INIT_WAIT_TIME
+	int "Ethernet initialization wait time (in seconds)"
+	default 1
 	help
-	  Use a predefined IPv4 address for the MQTT broker. If this option
-	  is not selected, the user will be prompted to enter the IPv4 address
-	  of the MQTT broker.
+	  Time to wait for the Ethernet initialization to complete before
+	  starting the MQTT connection.
 
-config NET_MQTT_BROKER_IPV4_ADDR
-	string "IPv4 address of the MQTT broker"
+config MQTT_BROKER_HOSTNAME
+	string "MQTT broker hostname"
 	default ""
 	help
-	  IPv4 address of the MQTT broker to connect to.
+	  Hostname of the MQTT broker to connect to.
 
 config NET_SAMPLE_APP_MAX_ITERATIONS
 	int "Number of times to Publish sample MQTT messages"

@@ -174,11 +174,50 @@ static int publish(struct mqtt_client *client, enum mqtt_qos qos)
 
 static void broker_init(void)
 {
-	struct sockaddr_in *broker4 = (struct sockaddr_in *)&broker;
+	int err;
 
-	broker4->sin_family = AF_INET;
-	broker4->sin_port = htons(SERVER_PORT);
-	inet_pton(AF_INET, SERVER_ADDR, &broker4->sin_addr);
+	if(strlen(CONFIG_MQTT_BROKER_HOSTNAME) > 0) {
+		struct addrinfo *result;
+
+		struct addrinfo hints = {
+			.ai_family = AF_INET,
+			.ai_socktype = SOCK_STREAM
+		};
+
+		err = getaddrinfo(CONFIG_MQTT_BROKER_HOSTNAME, NULL, &hints, &result);
+		if (err != 0) {
+			LOG_ERR("getaddrinfo failed: %d, %s", err, gai_strerror(err));
+			return;
+		}
+
+		if (result == NULL) {
+			LOG_ERR("Error, address not found");
+			return;
+		}
+
+		struct sockaddr_in *broker4 = ((struct sockaddr_in *)&broker);
+		broker4->sin_addr.s_addr = ((struct sockaddr_in *)result->ai_addr)->sin_addr.s_addr;
+		broker4->sin_family = AF_INET;
+		broker4->sin_port = htons(SERVER_PORT);
+
+		char ipv4_addr[NET_IPV4_ADDR_LEN];
+		inet_ntop(AF_INET, &broker4->sin_addr.s_addr, ipv4_addr, sizeof(ipv4_addr));
+		LOG_INF("IPv4 address of MQTT broker found %s", ipv4_addr);
+
+		freeaddrinfo(result);
+		return;
+
+	} else {
+		struct sockaddr_in *broker4 = (struct sockaddr_in *)&broker;
+
+		broker4->sin_family = AF_INET;
+		broker4->sin_port = htons(SERVER_PORT);
+		err = inet_pton(AF_INET, SERVER_ADDR, &broker4->sin_addr);
+		if (err != 1) {
+			LOG_ERR("inet_pton failed: %d", err);
+			return;
+		}
+	}
 }
 
 static void client_init(struct mqtt_client *client)
@@ -347,8 +386,18 @@ static int start_app(void)
 int main(void)
 {
 	LOG_INF("Starting MQTT Ethernet sample");
-	LOG_INF("Device IPv4 Address: %s", ZEPHYR_ADDR);
-	LOG_INF("Connecting to %s:%d", SERVER_ADDR, SERVER_PORT);
+	LOG_INF("Device IPv4 Address: %s", CONFIG_NET_CONFIG_MY_IPV4_ADDR);
+
+	if(strlen(CONFIG_MQTT_BROKER_HOSTNAME) > 0) {
+		LOG_INF("Connecting to %s:%d", CONFIG_MQTT_BROKER_HOSTNAME, SERVER_PORT);
+	} else {
+		LOG_INF("Connecting to %s:%d", SERVER_ADDR, SERVER_PORT);
+	}
+
+	/* Wait for the network to be ready */
+	LOG_INF("Waiting %d seconds for network to be ready...",
+		CONFIG_ETHERNET_INIT_WAIT_TIME);
+	k_sleep(K_SECONDS(CONFIG_ETHERNET_INIT_WAIT_TIME));
 
 	exit(start_app());
 
