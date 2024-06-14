@@ -340,6 +340,15 @@ static const struct ov5640_reg ov5640_720p_res_params[] = {
 	{0x3814, 0x31}, {0x3815, 0x31}, {0x3824, 0x04}, {0x460c, 0x20}};
 
 static const struct ov5640_resolution_config resolutionParams[] = {
+	{.width = 320,
+	 .height = 240,
+	 .res_params = ov5640_low_res_params,
+	 .mipi_pclk = {
+			//  .pllCtrl1 = 0x0a,
+			//  .pllCtrl2 = 0x2a,
+			.pllCtrl1 = 0x14,
+			.pllCtrl2 = 0x38,
+		 }},
 	{.width = 640,
 	 .height = 480,
 	 .res_params = ov5640_low_res_params,
@@ -367,6 +376,7 @@ static const struct video_format_cap fmts[] = {
 	OV5640_VIDEO_FORMAT_CAP(1280, 720, VIDEO_PIX_FMT_YUYV),
 	OV5640_VIDEO_FORMAT_CAP(640, 480, VIDEO_PIX_FMT_RGB565),
 	OV5640_VIDEO_FORMAT_CAP(640, 480, VIDEO_PIX_FMT_YUYV),
+	OV5640_VIDEO_FORMAT_CAP(320, 240, VIDEO_PIX_FMT_RGB565),
 	{0}};
 
 static int ov5640_read_reg(const struct i2c_dt_spec *spec, const uint16_t addr, void *val,
@@ -634,6 +644,18 @@ static int ov5640_init(const struct device *dev)
 
 	k_sleep(K_MSEC(20));
 
+	/* Check sensor chip id */
+	ret = ov5640_read_reg(&cfg->i2c, CHIP_ID_REG, &chip_id, sizeof(chip_id));
+	if (ret) {
+		LOG_ERR("Unable to read sensor chip ID, ret = %d", ret);
+		return -ENODEV;
+	}
+
+	if (chip_id != CHIP_ID_VAL) {
+		LOG_ERR("Wrong chip ID: %04x (expected %04x)", chip_id, CHIP_ID_VAL);
+		return -ENODEV;
+	}
+
 	/* Software reset */
 	ret = ov5640_write_reg(&cfg->i2c, SYS_CTRL0_REG, SYS_CTRL0_SW_RST);
 	if (ret) {
@@ -655,18 +677,6 @@ static int ov5640_init(const struct device *dev)
 	if (ret) {
 		LOG_ERR("Unable to set virtual channel");
 		return -EIO;
-	}
-
-	/* Check sensor chip id */
-	ret = ov5640_read_reg(&cfg->i2c, CHIP_ID_REG, &chip_id, sizeof(chip_id));
-	if (ret) {
-		LOG_ERR("Unable to read sensor chip ID, ret = %d", ret);
-		return -ENODEV;
-	}
-
-	if (chip_id != CHIP_ID_VAL) {
-		LOG_ERR("Wrong chip ID: %04x (expected %04x)", chip_id, CHIP_ID_VAL);
-		return -ENODEV;
 	}
 
 	/* Set default format to 720p RGB565 */

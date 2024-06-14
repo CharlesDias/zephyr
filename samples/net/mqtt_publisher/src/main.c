@@ -345,7 +345,7 @@ static void client_init(struct mqtt_client *client)
 
 #if defined(CONFIG_MQTT_LIB_WEBSOCKET)
 	client->transport.websocket.config.host = SERVER_ADDR;
-	client->transport.websocket.config.url = "/mqtt";
+	client->transport.websocket.config.url = "mqtt://";
 	client->transport.websocket.config.tmp_buf = temp_ws_rx_buf;
 	client->transport.websocket.config.tmp_buf_len =
 						sizeof(temp_ws_rx_buf);
