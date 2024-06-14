@@ -80,6 +80,8 @@ void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
 			CONTAINER_OF(hdcmi, struct video_stm32_dcmi_data, hdcmi);
 	struct video_buffer *vbuf;
 
+	LOG_DBG("ISR - Frame event");
+
 	HAL_DCMI_Suspend(hdcmi);
 
 	vbuf = k_fifo_get(&dev_data->fifo_in, K_NO_WAIT);

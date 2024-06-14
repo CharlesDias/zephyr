@@ -48,7 +48,7 @@ void display_splash_screen(void)
 
 int main(void)
 {
-	struct video_buffer *buffers[2], *vbuf;
+	struct video_buffer *buffers[1], *vbuf;
 	const uint16_t WIDTH_VIDEO = CONFIG_VIDEO_WIDTH;
 	const uint16_t HEIGHT_VIDEO = CONFIG_VIDEO_HEIGHT;
 	const struct device *display_dev;
@@ -64,6 +64,9 @@ int main(void)
 		LOG_ERR("Device not ready, aborting test");
 		return 0;
 	}
+
+	display_splash_screen();
+	display_blanking_off(display_dev);
 
 #if DT_HAS_CHOSEN(zephyr_camera)
 	video_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_camera));
@@ -155,10 +158,6 @@ int main(void)
 		return 0;
 	}
 
-	display_splash_screen();
-
-	display_blanking_off(display_dev);
-
 	const lv_img_dsc_t video_img = {
 		.header.always_zero = 0,
 		.header.w = WIDTH_VIDEO,
@@ -181,7 +180,7 @@ int main(void)
 	while (1) {
 		int err;
 
-		err = video_dequeue(video_dev, VIDEO_EP_OUT, &vbuf, K_FOREVER);
+		err = video_dequeue(video_dev, VIDEO_EP_OUT, &vbuf, K_MSEC(2000));
 		if (err) {
 			LOG_ERR("Unable to dequeue video buf");
 			return 0;
