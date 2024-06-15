@@ -39,7 +39,7 @@ struct video_buffer *video_buffer_aligned_alloc(size_t size, size_t align)
 	}
 
 	/* Alloc buffer memory */
-	block->data = k_heap_aligned_alloc(&video_buffer_pool, align, size, K_MSEC(1000));
+	block->data = k_heap_aligned_alloc(&video_buffer_pool, align, size, K_FOREVER);
 	if (block->data == NULL) {
 		return NULL;
 	}
