@@ -48,7 +48,7 @@ void display_splash_screen(void)
 
 int main(void)
 {
-	struct video_buffer *buffers[1], *vbuf;
+	struct video_buffer *buffers[2], *vbuf;
 	const uint16_t WIDTH_VIDEO = CONFIG_VIDEO_WIDTH;
 	const uint16_t HEIGHT_VIDEO = CONFIG_VIDEO_HEIGHT;
 	const struct device *display_dev;
