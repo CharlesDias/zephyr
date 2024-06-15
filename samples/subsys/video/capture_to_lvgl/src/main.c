@@ -121,22 +121,22 @@ int main(void)
 	fmt.height = HEIGHT_VIDEO;
 	fmt.pitch = fmt.width * 2;
 
-	if (video_set_format(video_dev, VIDEO_EP_OUT, &fmt)) {
-		LOG_ERR("Unable to set up video format");
-		return 0;
-	}
+	// if (video_set_format(video_dev, VIDEO_EP_OUT, &fmt)) {
+	// 	LOG_ERR("Unable to set up video format");
+	// 	return 0;
+	// }
 
-	/* Get format */
-	if (video_get_format(video_dev, VIDEO_EP_OUT, &fmt)) {
-		LOG_ERR("Unable to retrieve video format");
-		return 0;
-	}
+	// /* Get format */
+	// if (video_get_format(video_dev, VIDEO_EP_OUT, &fmt)) {
+	// 	LOG_ERR("Unable to retrieve video format");
+	// 	return 0;
+	// }
 
-	printk("- New format: %c%c%c%c %ux%u %u\n", (char)fmt.pixelformat,
-		(char)(fmt.pixelformat >> 8),
-		(char)(fmt.pixelformat >> 16),
-		(char)(fmt.pixelformat >> 24),
-		fmt.width, fmt.height, fmt.pitch);
+	// printk("- New format: %c%c%c%c %ux%u %u\n", (char)fmt.pixelformat,
+	// 	(char)(fmt.pixelformat >> 8),
+	// 	(char)(fmt.pixelformat >> 16),
+	// 	(char)(fmt.pixelformat >> 24),
+	// 	fmt.width, fmt.height, fmt.pitch);
 
 	/* Size to allocate for each buffer */
 	bsize = fmt.pitch * fmt.height;
@@ -180,7 +180,7 @@ int main(void)
 	while (1) {
 		int err;
 
-		err = video_dequeue(video_dev, VIDEO_EP_OUT, &vbuf, K_MSEC(2000));
+		err = video_dequeue(video_dev, VIDEO_EP_OUT, &vbuf, K_FOREVER);
 		if (err) {
 			LOG_ERR("Unable to dequeue video buf");
 			return 0;

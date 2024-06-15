@@ -44,6 +44,17 @@ int main(void)
 	video = dev;
 #endif
 
+#if defined(CONFIG_VIDEO_STM32_DCMI)
+	const struct device *const dev = DEVICE_DT_GET_ONE(st_stm32_dcmi);
+
+	if (!device_is_ready(dev)) {
+		LOG_ERR("%s: device not ready.\n", dev->name);
+		return 0;
+	}
+
+	video = dev;
+#endif
+
 	printk("- Device name: %s\n", video->name);
 
 	/* Get capabilities */
