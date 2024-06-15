@@ -99,7 +99,18 @@ int main(void)
 	}
 #endif
 
-	printk("Video device: %s\n", video_dev->name);
+#if defined(CONFIG_VIDEO_STM32_DCMI)
+	const struct device *const dev = DEVICE_DT_GET_ONE(st_stm32_dcmi);
+
+	if (!device_is_ready(dev)) {
+		LOG_ERR("%s: device not ready.\n", dev->name);
+		return 0;
+	}
+
+	video = dev;
+#endif
+
+	printk("- Device name: %s\n", video->name);
 
 	/* Get capabilities */
 	if (video_get_caps(video_dev, VIDEO_EP_OUT, &caps)) {

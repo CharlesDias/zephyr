@@ -56,6 +56,9 @@ int main(void)
 		return 0;
 	}
 #endif
+
+	printk("- Device name: %s\n", video->name);
+
 	/* Prepare Network */
 	(void)memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
