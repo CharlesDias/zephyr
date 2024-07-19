@@ -63,6 +63,9 @@ int main(void)
 		return 0;
 	}
 
+	display_splash_screen();
+	display_blanking_off(display_dev);
+
 #if DT_HAS_CHOSEN(zephyr_camera)
 	video_dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_camera));
 	if (!device_is_ready(video_dev)) {
@@ -152,10 +155,6 @@ int main(void)
 		LOG_ERR("Unable to start capture (interface)");
 		return 0;
 	}
-
-	display_splash_screen();
-
-	display_blanking_off(display_dev);
 
 	const lv_img_dsc_t video_img = {
 		.header.always_zero = 0,
