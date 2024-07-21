@@ -1,0 +1,15 @@
+# Copyright (c) 2024 Charles Dias <charlesdias.cd@outlook.com>
+# SPDX-License-Identifier: Apache-2.0
+
+if SHIELD_ST_B_CAMS_OMV_MB1683
+
+# Double frame buffer maintained by lvgl.
+if LVGL
+
+choice LV_COLOR_DEPTH
+	default LV_COLOR_DEPTH_16
+endchoice
+
+endif # LVGL
+
+endif # SHIELD_ST_B_CAMS_OMV_MB1683
