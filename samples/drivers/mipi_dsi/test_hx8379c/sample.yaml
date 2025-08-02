@@ -1,0 +1,23 @@
+sample:
+  name: HX8379C MIPI DSI Display Test
+  description: Test application for HX8379C MIPI DSI display panel
+
+common:
+  tags:
+    - display
+    - mipi_dsi
+    - samples
+    - drivers
+  depends_on:
+    - display
+    - mipi_dsi
+  harness: console
+  harness_config:
+    type: one_line
+    regex:
+      - "Display turned on successfully"
+
+tests:
+  sample.drivers.mipi_dsi.hx8379c:
+    platform_allow:
+      - stm32u5g9j_dk1

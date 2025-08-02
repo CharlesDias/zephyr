@@ -1,0 +1,11 @@
+# Copyright (c) 2024 STMicroelectronics
+# SPDX-License-Identifier: Apache-2.0
+
+config HX8379C
+	bool "HX8379C display driver"
+	default y
+	depends on DT_HAS_HIMAX_HX8379C_ENABLED
+	select MIPI_DSI
+	help
+	  Enable driver for HX8379C display controller with MIPI-DSI interface.
+	  HX8379C is a 480x480 RGB driver with 24-bit color depth.

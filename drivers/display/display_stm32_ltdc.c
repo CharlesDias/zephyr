@@ -45,14 +45,17 @@ LOG_MODULE_REGISTER(display_stm32_ltdc, CONFIG_DISPLAY_LOG_LEVEL);
 #define LTDC_PCPOL_ACTIVE_HIGH    0x10000000
 
 #if CONFIG_STM32_LTDC_ARGB8888
+#warning "Using ARGB8888 pixel format for STM32 LTDC"
 #define STM32_LTDC_INIT_PIXEL_SIZE	4u
 #define STM32_LTDC_INIT_PIXEL_FORMAT	LTDC_PIXEL_FORMAT_ARGB8888
 #define DISPLAY_INIT_PIXEL_FORMAT	PIXEL_FORMAT_ARGB_8888
 #elif CONFIG_STM32_LTDC_RGB888
+#warning "Using RGB888 pixel format for STM32 LTDC"
 #define STM32_LTDC_INIT_PIXEL_SIZE	3u
 #define STM32_LTDC_INIT_PIXEL_FORMAT	LTDC_PIXEL_FORMAT_RGB888
 #define DISPLAY_INIT_PIXEL_FORMAT	PIXEL_FORMAT_RGB_888
 #elif CONFIG_STM32_LTDC_RGB565
+#warning "Using RGB565 pixel format for STM32 LTDC"
 #define STM32_LTDC_INIT_PIXEL_SIZE	2u
 #define STM32_LTDC_INIT_PIXEL_FORMAT	LTDC_PIXEL_FORMAT_RGB565
 #define DISPLAY_INIT_PIXEL_FORMAT	PIXEL_FORMAT_BGR_565
@@ -83,6 +86,66 @@ struct display_stm32_ltdc_config {
 	void (*irq_config_func)(const struct device *dev);
 	const struct device *display_controller;
 };
+
+static void stm32_ltdc_log_config(const struct device *dev)
+{
+	const struct display_stm32_ltdc_config *config = dev->config;
+	struct display_stm32_ltdc_data *data = dev->data;
+
+	LOG_DBG("STM32 LTDC Configuration:");
+	LOG_DBG("Display dimensions: %dx%d", config->width, config->height);
+	LOG_DBG("Current Pixel format: %d (size: %d bytes)", data->current_pixel_format, data->current_pixel_size);
+	LOG_DBG("Frame buffer length: %d bytes", data->frame_buffer_len);
+
+	LOG_DBG("LTDC Init Parameters:");
+	LOG_DBG("  HSPolarity: 0x%08X", data->hltdc.Init.HSPolarity);
+	LOG_DBG("  VSPolarity: 0x%08X", data->hltdc.Init.VSPolarity);
+	LOG_DBG("  DEPolarity: 0x%08X", data->hltdc.Init.DEPolarity);
+	LOG_DBG("  PCPolarity: 0x%08X", data->hltdc.Init.PCPolarity);
+	LOG_DBG("  HorizontalSync: %d", data->hltdc.Init.HorizontalSync);
+	LOG_DBG("  VerticalSync: %d", data->hltdc.Init.VerticalSync);
+	LOG_DBG("  AccumulatedHBP: %d", data->hltdc.Init.AccumulatedHBP);
+	LOG_DBG("  AccumulatedVBP: %d", data->hltdc.Init.AccumulatedVBP);
+	LOG_DBG("  AccumulatedActiveW: %d", data->hltdc.Init.AccumulatedActiveW);
+	LOG_DBG("  AccumulatedActiveH: %d", data->hltdc.Init.AccumulatedActiveH);
+	LOG_DBG("  TotalWidth: %d", data->hltdc.Init.TotalWidth);
+	LOG_DBG("  TotalHeigh: %d", data->hltdc.Init.TotalHeigh);
+	LOG_DBG("  Background Color: R=%d G=%d B=%d", 
+		data->hltdc.Init.Backcolor.Red,
+		data->hltdc.Init.Backcolor.Green,
+		data->hltdc.Init.Backcolor.Blue);
+
+	LOG_DBG("LTDC Layer 0 Configuration:");
+	LOG_DBG("  Window: X0=%d Y0=%d X1=%d Y1=%d",
+		data->hltdc.LayerCfg[0].WindowX0,
+		data->hltdc.LayerCfg[0].WindowY0,
+		data->hltdc.LayerCfg[0].WindowX1,
+		data->hltdc.LayerCfg[0].WindowY1);
+	LOG_DBG("  PixelFormat: 0x%08X", data->hltdc.LayerCfg[0].PixelFormat);
+	LOG_DBG("  Alpha: %d, Alpha0: %d", data->hltdc.LayerCfg[0].Alpha, data->hltdc.LayerCfg[0].Alpha0);
+	LOG_DBG("  BlendingFactor1: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor1);
+	LOG_DBG("  BlendingFactor2: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor2);
+	LOG_DBG("  FBStartAdress: 0x%08X", data->hltdc.LayerCfg[0].FBStartAdress);
+	LOG_DBG("  ImageWidth: %d, ImageHeight: %d", 
+		data->hltdc.LayerCfg[0].ImageWidth,
+		data->hltdc.LayerCfg[0].ImageHeight);
+	LOG_DBG("  Layer Background Color: R=%d G=%d B=%d",
+		data->hltdc.LayerCfg[0].Backcolor.Red,
+		data->hltdc.LayerCfg[0].Backcolor.Green,
+		data->hltdc.LayerCfg[0].Backcolor.Blue);
+
+	if (config->disp_on_gpio.port) {
+		LOG_DBG("Display ON GPIO: %s pin %d", 
+			config->disp_on_gpio.port->name, config->disp_on_gpio.pin);
+	}
+	if (config->bl_ctrl_gpio.port) {
+		LOG_DBG("Backlight GPIO: %s pin %d", 
+			config->bl_ctrl_gpio.port->name, config->bl_ctrl_gpio.pin);
+	}
+	if (config->display_controller) {
+		LOG_DBG("Display controller: %s", config->display_controller->name);
+	}
+}
 
 static void stm32_ltdc_global_isr(const struct device *dev)
 {
@@ -447,6 +510,9 @@ static int stm32_ltdc_init(const struct device *dev)
 		return err;
 	}
 
+	/* Log LTDC configuration for debugging */
+	stm32_ltdc_log_config(dev);
+
 #if defined(CONFIG_STM32_LTDC_FB_USE_SHARED_MULTI_HEAP)
 	data->frame_buffer = shared_multi_heap_aligned_alloc(
 			CONFIG_STM32_LTDC_FB_SMH_ATTRIBUTE,
@@ -680,8 +746,8 @@ static DEVICE_API(display, stm32_ltdc_display_api) = {
 				.PixelFormat = STM32_LTDC_INIT_PIXEL_FORMAT,			\
 				.Alpha = 255,							\
 				.Alpha0 = 0,							\
-				.BlendingFactor1 = LTDC_BLENDING_FACTOR1_PAxCA,			\
-				.BlendingFactor2 = LTDC_BLENDING_FACTOR2_PAxCA,			\
+				.BlendingFactor1 = LTDC_BLENDING_FACTOR1_CA,			\
+				.BlendingFactor2 = LTDC_BLENDING_FACTOR2_CA,			\
 				.FBStartAdress = (uint32_t) STM32_LTDC_FRAME_BUFFER_ADDR(inst), \
 				.ImageWidth = DT_INST_PROP(inst, width),			\
 				.ImageHeight = DT_INST_PROP(inst, height),			\

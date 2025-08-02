@@ -18,14 +18,35 @@
 #include <zephyr/drivers/mipi_dsi.h>
 #include <zephyr/drivers/reset.h>
 #include <zephyr/logging/log.h>
+#include <stm32_ll_rcc.h>
+
+#ifdef CONFIG_SOC_SERIES_STM32U5X
+#include <stm32u5xx_hal_rcc_ex.h>
+#include <stm32u5xx_hal_dsi.h>
+#elif defined(CONFIG_SOC_SERIES_STM32H7X)
+#include <stm32h7xx_hal_rcc_ex.h>
+#include <stm32h7xx_hal_dsi.h>
+#elif defined(CONFIG_SOC_SERIES_STM32F4X)
+#include <stm32f4xx_hal_rcc_ex.h>
+#include <stm32f4xx_hal_dsi.h>
+#elif defined(CONFIG_SOC_SERIES_STM32F7X)
+#include <stm32f7xx_hal_rcc_ex.h>
+#include <stm32f7xx_hal_dsi.h>
+#elif defined(CONFIG_SOC_SERIES_STM32L4X)
+#include <stm32l4xx_hal_rcc_ex.h>
+#include <stm32l4xx_hal_dsi.h>
+#endif
 
 LOG_MODULE_REGISTER(dsi_stm32, CONFIG_MIPI_DSI_LOG_LEVEL);
 
 #if defined(CONFIG_STM32_LTDC_ARGB8888)
+#warning "Using ARGB8888 pixel format for STM32 DSI"
 #define STM32_DSI_INIT_PIXEL_FORMAT	DSI_RGB888
 #elif defined(CONFIG_STM32_LTDC_RGB888)
+#warning "Using RGB888 pixel format for STM32 DSI"
 #define STM32_DSI_INIT_PIXEL_FORMAT	DSI_RGB888
 #elif defined(CONFIG_STM32_LTDC_RGB565)
+#warning "Using RGB565 pixel format for STM32 DSI"
 #define STM32_DSI_INIT_PIXEL_FORMAT	DSI_RGB565
 #else
 #error "Invalid LTDC pixel format chosen"
@@ -44,6 +65,7 @@ struct mipi_dsi_stm32_config {
 	uint32_t active_errors;
 	uint32_t lp_rx_filter_freq;
 	int test_pattern;
+	int tx_escape_clk_div;
 };
 
 struct mipi_dsi_stm32_data {
@@ -66,9 +88,16 @@ static void mipi_dsi_stm32_log_config(const struct device *dev)
 	LOG_DBG("  AutomaticClockLaneControl 0x%x", data->hdsi.Init.AutomaticClockLaneControl);
 	LOG_DBG("  TXEscapeCkdiv %u", data->hdsi.Init.TXEscapeCkdiv);
 	LOG_DBG("  NumberOfLanes %u", data->hdsi.Init.NumberOfLanes);
+	LOG_DBG("  PHYFrequencyRange 0x%x", data->hdsi.Init.PHYFrequencyRange);
+	LOG_DBG("  PHYLowPowerOffset 0x%x", data->hdsi.Init.PHYLowPowerOffset);
+
+	LOG_DBG("PLL Init Parameters:");
 	LOG_DBG("  PLLNDIV %u", data->pll_init.PLLNDIV);
 	LOG_DBG("  PLLIDF %u", data->pll_init.PLLIDF);
 	LOG_DBG("  PLLODF %u", data->pll_init.PLLODF);
+	LOG_DBG("  PLLVCORange %u", data->pll_init.PLLVCORange);
+	LOG_DBG("  PLLChargePump %u", data->pll_init.PLLChargePump);
+	LOG_DBG("  PLLTuning %u", data->pll_init.PLLTuning);
 
 	LOG_DBG("HAL_DSI_ConfigVideoMode setup:");
 	LOG_DBG("  VirtualChannelID %u", data->vid_cfg.VirtualChannelID);
@@ -172,17 +201,35 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 			     (1UL << data->pll_init.PLLODF) / 8 / 1000;
 
 	/* stm32x_hal_dsi: The values 0 and 1 stop the TX_ESC clock generation */
-	data->hdsi.Init.TXEscapeCkdiv = 0;
-	for (int i = 2; i <= MAX_TX_ESC_CLK_DIV; i++) {
-		if ((data->lane_clk_khz / i) <= MAX_TX_ESC_CLK_KHZ) {
-			data->hdsi.Init.TXEscapeCkdiv = i;
-			break;
+	if (config->tx_escape_clk_div > 0) {
+		/* Use device tree specified value */
+		data->hdsi.Init.TXEscapeCkdiv = config->tx_escape_clk_div;
+		LOG_DBG("Using DT tx-escape-clk-div: %d", config->tx_escape_clk_div);
+	} else {
+		/* Auto-calculate TXEscapeCkdiv */
+		data->hdsi.Init.TXEscapeCkdiv = 0;
+		for (int i = 2; i <= MAX_TX_ESC_CLK_DIV; i++) {
+			if ((data->lane_clk_khz / i) <= MAX_TX_ESC_CLK_KHZ) {
+				data->hdsi.Init.TXEscapeCkdiv = i;
+				break;
+			}
 		}
+		LOG_DBG("Auto-calculated TXEscapeCkdiv: %d", data->hdsi.Init.TXEscapeCkdiv);
 	}
 
 	if (data->hdsi.Init.TXEscapeCkdiv < 2) {
 		LOG_WRN("DSI TX escape clock disabled.");
 	}
+
+#ifdef CONFIG_SOC_SERIES_STM32U5X
+#warning "Applying STM32U5 specific DSI PHY settings"
+	data->hdsi.Init.PHYFrequencyRange = DSI_DPHY_FRANGE_450MHZ_510MHZ;
+	data->hdsi.Init.PHYLowPowerOffset = PHY_LP_OFFSSET_0_CLKP;
+
+	data->pll_init.PLLVCORange = DSI_DPHY_VCO_FRANGE_800MHZ_1GHZ;
+	data->pll_init.PLLChargePump = DSI_PLL_CHARGE_PUMP_2000HZ_4400HZ;
+	data->pll_init.PLLTuning = DSI_PLL_LOOP_FILTER_2000HZ_4400HZ;
+#endif
 
 	ret = HAL_DSI_Init(&data->hdsi, &data->pll_init);
 	if (ret != HAL_OK) {
@@ -213,14 +260,14 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 	}
 
 	if (config->lp_rx_filter_freq) {
-#if !defined(STM32U5)
-		ret = HAL_DSI_SetLowPowerRXFilter(&data->hdsi, config->lp_rx_filter_freq);
-		if (ret != HAL_OK) {
-			LOG_ERR("Setup DSI LP RX filter failed! (%d)", ret);
-			return -ret;
-		}
+#ifdef CONFIG_SOC_SERIES_STM32U5X
+	LOG_WRN("LP RX filter not supported on STM32U5");
 #else
-		LOG_WRN("LP RX filter not supported on STM32U5");
+	ret = HAL_DSI_SetLowPowerRXFilter(&data->hdsi, config->lp_rx_filter_freq);
+	if (ret != HAL_OK) {
+		LOG_ERR("Setup DSI LP RX filter failed! (%d)", ret);
+		return -ret;
+	}
 #endif
 	}
 
@@ -232,7 +279,6 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 
 	return 0;
 }
-
 
 static int mipi_dsi_stm32_attach(const struct device *dev, uint8_t channel,
 				 const struct mipi_dsi_device *mdev)
@@ -260,7 +306,7 @@ static int mipi_dsi_stm32_attach(const struct device *dev, uint8_t channel,
 
 	vcfg->PacketSize = mdev->timings.hactive;
 	vcfg->NumberOfChunks = 0;
-	vcfg->NullPacketSize = 0xFFFU;
+	vcfg->NullPacketSize = 0;
 
 	vcfg->HorizontalSyncActive =
 		(mdev->timings.hsync * data->lane_clk_khz) / data->pixel_clk_khz;
@@ -296,6 +342,19 @@ static int mipi_dsi_stm32_attach(const struct device *dev, uint8_t channel,
 	if (IS_ENABLED(CONFIG_MIPI_DSI_LOG_LEVEL_DBG)) {
 		mipi_dsi_stm32_log_config(dev);
 	}
+
+#ifdef CONFIG_SOC_SERIES_STM32U5X
+#warning "Switch to DSI PHY PLL clock - matching STM32CubeU5 reference"
+	RCC_PeriphCLKInitTypeDef dsi_phy_init = {0};
+	dsi_phy_init.PeriphClockSelection = RCC_PERIPHCLK_DSI;
+	dsi_phy_init.DsiClockSelection = RCC_DSICLKSOURCE_DSIPHY;
+	ret = HAL_RCCEx_PeriphCLKConfig(&dsi_phy_init);
+	if (ret != HAL_OK) {
+		LOG_ERR("Switch to DSI PHY clock failed! (%d)", ret);
+		return -ret;
+	}
+	LOG_DBG("Switched DSI clock to DSI PHY PLL");
+#endif
 
 	ret = HAL_DSI_Start(&data->hdsi);
 	if (ret != HAL_OK) {
@@ -474,6 +533,7 @@ static int mipi_dsi_stm32_init(const struct device *dev)
 		.active_errors = DT_INST_PROP_OR(inst, active_errors, HAL_DSI_ERROR_NONE),	\
 		.lp_rx_filter_freq = DT_INST_PROP_OR(inst, lp_rx_filter, 0),			\
 		.test_pattern = DT_INST_PROP_OR(inst, test_pattern, -1),			\
+		.tx_escape_clk_div = DT_INST_PROP_OR(inst, tx_escape_clk_div, -1),		\
 	};											\
 	static struct mipi_dsi_stm32_data stm32_dsi_data_##inst = {				\
 		.hdsi = {									\

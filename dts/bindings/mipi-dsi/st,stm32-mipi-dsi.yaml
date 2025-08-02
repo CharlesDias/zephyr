@@ -103,6 +103,12 @@ properties:
     description: |
       DSI HOST PHY timing parameters.
 
+  tx-escape-clk-div:
+    type: int
+    description: |
+      DSI HOST TX escape clock divider. If not specified, the driver will
+      automatically calculate an appropriate value based on the lane clock frequency.
+
   test-pattern:
     type: int
     enum:

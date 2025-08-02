@@ -1,0 +1,35 @@
+# Copyright (c) 2024 STMicroelectronics
+# SPDX-License-Identifier: Apache-2.0
+
+description: Himax HX8379C MIPI-DSI display panel
+
+compatible: "himax,hx8379c"
+
+include: [mipi-dsi-device.yaml]
+
+properties:
+  width:
+    type: int
+    required: true
+    description: Panel width in pixels
+
+  height:
+    type: int
+    required: true
+    description: Panel height in pixels
+
+  pixel-format:
+    type: int
+    required: true
+    description: Pixel format as defined by MIPI-DSI specification
+
+  data-lanes:
+    required: true
+
+  reset-gpios:
+    type: phandle-array
+    description: GPIO for panel reset pin
+
+  bl-gpios:
+    type: phandle-array
+    description: GPIO for panel backlight enable pin
