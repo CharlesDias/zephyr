@@ -213,11 +213,15 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 	}
 
 	if (config->lp_rx_filter_freq) {
+#if !defined(STM32U5)
 		ret = HAL_DSI_SetLowPowerRXFilter(&data->hdsi, config->lp_rx_filter_freq);
 		if (ret != HAL_OK) {
 			LOG_ERR("Setup DSI LP RX filter failed! (%d)", ret);
 			return -ret;
 		}
+#else
+		LOG_WRN("LP RX filter not supported on STM32U5");
+#endif
 	}
 
 	ret = HAL_DSI_ConfigErrorMonitor(&data->hdsi, config->active_errors);
