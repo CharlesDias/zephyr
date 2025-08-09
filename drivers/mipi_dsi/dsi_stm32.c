@@ -59,31 +59,28 @@ struct mipi_dsi_stm32_data {
 	uint32_t pixel_clk_khz;
 };
 
-/* Error Handler */
-static void error_handler(void)
-{
-	LOG_ERR("STM32 DSI Display Error Handler called");
-	__disable_irq();
-	while (1) {
-		/* Stay here */
-	}
-}
-
-/* LCD Set Default Clock function - configures DSI PHY clock and LCD reset */
-void stm32_dsi_system_clock_config(void)
+/* Configures DSI PHY as DSI clock source */
+static int stm32_dsi_clock_source_config(void)
 {
 	RCC_PeriphCLKInitTypeDef DSIPHYInitPeriph;
+	int ret;
 
 	/* Switch to DSI PHY PLL clock */
 	DSIPHYInitPeriph.PeriphClockSelection = RCC_PERIPHCLK_DSI;
 	DSIPHYInitPeriph.DsiClockSelection = RCC_DSICLKSOURCE_DSIPHY;
 
 	if (HAL_RCCEx_PeriphCLKConfig(&DSIPHYInitPeriph) != HAL_OK) {
-		LOG_ERR("Failed to configure DSI PHY clock");
-		error_handler();
+		LOG_ERR("Failed to configure DSI PHY as DSI clock source");
+		return -EIO;
 	}
 
-	LOG_INF("DSI PHY clock configured and LCD reset completed");
+	uint32_t reg_val = *(volatile uint32_t *)0x46020CE4;
+	uint8_t dsi_sel = (reg_val >> 15) & 0x01;
+	LOG_DBG("DSI kernel clock source selection");
+	LOG_DBG("  DSISEL (Bit 15) at RCC_CCIPR2 (0x46020CE4) : %u", dsi_sel);
+	LOG_DBG("  Select the DSI kernel clock source as \"%s\"", dsi_sel ? "DSI PHY PLL output selected" : "PLL3 P (pll3_p_ck) selected");
+
+	return 0;
 }
 
 static void mipi_dsi_stm32_log_config(const struct device *dev)
@@ -208,6 +205,13 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 	data->lane_clk_khz = hse_clock / data->pll_init.PLLIDF * 2 * data->pll_init.PLLNDIV / 2 /
 			     (1UL << data->pll_init.PLLODF) / 8 / 1000;
 
+	LOG_WRN("pixel_clk_khz: %u", data->pixel_clk_khz);
+	LOG_WRN("hse_clock: %u", hse_clock);
+	LOG_WRN("PLLIDF: %u", data->pll_init.PLLIDF);
+	LOG_WRN("PLLNDIV: %u", data->pll_init.PLLNDIV);
+	LOG_WRN("PLLODF: %u", data->pll_init.PLLODF);
+	LOG_WRN("lane_clk_khz: %u", data->lane_clk_khz);
+
 	/* stm32x_hal_dsi: The values 0 and 1 stop the TX_ESC clock generation */
 	data->hdsi.Init.TXEscapeCkdiv = 0;
 	for (int i = 2; i <= MAX_TX_ESC_CLK_DIV; i++) {
@@ -221,6 +225,10 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 		LOG_WRN("DSI TX escape clock disabled.");
 	}
 
+	LOG_WRN("DEFAULT DSI PHY and PLL settings");
+	LOG_WRN("  TXEscapeCkdiv %u", data->hdsi.Init.TXEscapeCkdiv);
+	LOG_WRN("  PHYFrequencyRange %u", data->hdsi.Init.PHYFrequencyRange);
+	LOG_WRN("  PLLVCORange %u", data->pll_init.PLLVCORange);
 #ifdef CONFIG_SOC_SERIES_STM32U5X
 #warning "Applying STM32U5 specific DSI PHY and PLL settings"
 	data->hdsi.Init.TXEscapeCkdiv = 4;
@@ -231,6 +239,10 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 	// data->pll_init.PLLChargePump = DSI_PLL_CHARGE_PUMP_2000HZ_4400HZ;
 	// data->pll_init.PLLTuning = DSI_PLL_LOOP_FILTER_2000HZ_4400HZ;
 #endif
+	LOG_WRN("STM32Cube DSI PHY and PLL settings");
+	LOG_WRN("  TXEscapeCkdiv %u", data->hdsi.Init.TXEscapeCkdiv);
+	LOG_WRN("  PHYFrequencyRange %u", data->hdsi.Init.PHYFrequencyRange);
+	LOG_WRN("  PLLVCORange %u", data->pll_init.PLLVCORange);
 
 	ret = HAL_DSI_Init(&data->hdsi, &data->pll_init);
 	if (ret != HAL_OK) {
@@ -342,13 +354,18 @@ static int mipi_dsi_stm32_attach(const struct device *dev, uint8_t channel,
 		return -ret;
 	}
 
-	if (HAL_DSI_SetGenericVCID(&data->hdsi, 0) != HAL_OK) {
-		LOG_ERR("Failed to set DSI generic VCID");
-		return -1;
-	}
+	// if (HAL_DSI_SetGenericVCID(&data->hdsi, 0) != HAL_OK) {
+	// 	LOG_ERR("Failed to set DSI generic VCID");
+	// 	return -1;
+	// }
 
-	/* Configure DSI PHY clock and perform LCD reset */
-	stm32_dsi_system_clock_config();
+#ifdef CONFIG_SOC_SERIES_STM32U5X
+	ret = stm32_dsi_clock_source_config();
+	if (ret < 0) {
+		LOG_ERR("Failed to configure DSI clock source");
+		return ret;
+	}
+#endif
 
 	if (IS_ENABLED(CONFIG_MIPI_DSI_LOG_LEVEL_DBG)) {
 		mipi_dsi_stm32_log_config(dev);

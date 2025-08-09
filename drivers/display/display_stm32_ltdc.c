@@ -489,6 +489,9 @@ static int stm32_ltdc_init(const struct device *dev)
 	LTDC->LIPCR = 0U;
 
 	LOG_INF("STM32 LTDC Display Driver initialized");
+	// Get the LTDC clock source
+	uint32_t frequency = HAL_RCCEx_GetPeriphCLKFreq(RCC_PERIPHCLK_LTDC);
+	LOG_INF("LTDC clock frequency: %u kHz", frequency / 1000);
 
 	/* Log LTDC initialization parameters */
 	LOG_INF("LTDC Init Parameters:");
