@@ -1,0 +1,45 @@
+# Copyright (c) 2025 Charles Dias
+# SPDX-License-Identifier: Apache-2.0
+
+description: STM32 DSI Display Driver
+
+compatible: "st,stm32-dsi-display"
+
+include: display-controller.yaml
+
+properties:
+  width:
+    type: int
+    required: true
+    description: Panel width in pixels
+
+  height:
+    type: int
+    required: true
+    description: Panel height in pixels
+
+  framebuffer-address:
+    type: int
+    required: true
+    description: Physical address of the framebuffer memory
+
+  pixel-format:
+    type: int
+    required: true
+    description: |
+      Pixel format as defined by LTDC constants:
+      LTDC_PIXEL_FORMAT_ARGB8888 = 0
+      LTDC_PIXEL_FORMAT_RGB888 = 1
+      LTDC_PIXEL_FORMAT_RGB565 = 2
+
+  reset-gpios:
+    type: phandle-array
+    description: Reset GPIO pin
+
+  enable-gpios:
+    type: phandle-array
+    description: Enable GPIO pin
+
+  backlight-gpios:
+    type: phandle-array
+    description: Backlight control GPIO pin

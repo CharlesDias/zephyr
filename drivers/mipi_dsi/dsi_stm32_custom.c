@@ -1,13 +1,10 @@
 /*
- * Copyright (c) 2023 bytes at work AG
- * Copyright (c) 2020 Teslabs Engineering S.L.
- * based on dsi_mcux.c
- * Copyright (c) 2022, NXP
+ * Copyright (c) 2025 Charles Dias
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT st_stm32_mipi_dsi
+#define DT_DRV_COMPAT st_stm32_custom_mipi_dsi
 
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
@@ -19,7 +16,7 @@
 #include <zephyr/drivers/reset.h>
 #include <zephyr/logging/log.h>
 
-LOG_MODULE_REGISTER(dsi_stm32, CONFIG_MIPI_DSI_LOG_LEVEL);
+LOG_MODULE_REGISTER(dsi_stm32_custom, LOG_LEVEL_DBG);
 
 #if defined(CONFIG_STM32_LTDC_ARGB8888)
 #warning "DSI using ARGB8888 pixel format"
@@ -58,6 +55,33 @@ struct mipi_dsi_stm32_data {
 	uint32_t lane_clk_khz;
 	uint32_t pixel_clk_khz;
 };
+
+/* Error Handler */
+static void error_handler(void)
+{
+	LOG_ERR("STM32 DSI Display Error Handler called");
+	__disable_irq();
+	while (1) {
+		/* Stay here */
+	}
+}
+
+/* LCD Set Default Clock function - configures DSI PHY clock and LCD reset */
+void stm32_dsi_system_clock_config(void)
+{
+	RCC_PeriphCLKInitTypeDef DSIPHYInitPeriph;
+
+	/* Switch to DSI PHY PLL clock */
+	DSIPHYInitPeriph.PeriphClockSelection = RCC_PERIPHCLK_DSI;
+	DSIPHYInitPeriph.DsiClockSelection = RCC_DSICLKSOURCE_DSIPHY;
+
+	if (HAL_RCCEx_PeriphCLKConfig(&DSIPHYInitPeriph) != HAL_OK) {
+		LOG_ERR("Failed to configure DSI PHY clock");
+		error_handler();
+	}
+
+	LOG_INF("DSI PHY clock configured and LCD reset completed");
+}
 
 static void mipi_dsi_stm32_log_config(const struct device *dev)
 {
@@ -194,6 +218,17 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 		LOG_WRN("DSI TX escape clock disabled.");
 	}
 
+#ifdef CONFIG_SOC_SERIES_STM32U5X
+#warning "Applying STM32U5 specific DSI PHY and PLL settings"
+	data->hdsi.Init.TXEscapeCkdiv = 4;
+	data->hdsi.Init.PHYFrequencyRange = DSI_DPHY_FRANGE_450MHZ_510MHZ;
+	// data->hdsi.Init.PHYLowPowerOffset = PHY_LP_OFFSSET_0_CLKP;
+
+	data->pll_init.PLLVCORange = DSI_DPHY_VCO_FRANGE_800MHZ_1GHZ;
+	// data->pll_init.PLLChargePump = DSI_PLL_CHARGE_PUMP_2000HZ_4400HZ;
+	// data->pll_init.PLLTuning = DSI_PLL_LOOP_FILTER_2000HZ_4400HZ;
+#endif
+
 	ret = HAL_DSI_Init(&data->hdsi, &data->pll_init);
 	if (ret != HAL_OK) {
 		LOG_ERR("DSI init failed! (%d)", ret);
@@ -273,13 +308,18 @@ static int mipi_dsi_stm32_attach(const struct device *dev, uint8_t channel,
 	vcfg->NumberOfChunks = 0;
 	vcfg->NullPacketSize = 0xFFFU;
 
-	vcfg->HorizontalSyncActive =
-		(mdev->timings.hsync * data->lane_clk_khz) / data->pixel_clk_khz;
-	vcfg->HorizontalBackPorch =
-		(mdev->timings.hbp * data->lane_clk_khz) / data->pixel_clk_khz;
-	vcfg->HorizontalLine =
-		((mdev->timings.hactive + mdev->timings.hsync + mdev->timings.hbp +
-		  mdev->timings.hfp) * data->lane_clk_khz) / data->pixel_clk_khz;
+	vcfg->HorizontalSyncActive = 6;
+	vcfg->HorizontalBackPorch = 3;
+	vcfg->HorizontalLine = 1452;
+	#warning "Need to implement timing calculations"
+	// vcfg->HorizontalSyncActive =
+	// 	(mdev->timings.hsync * data->lane_clk_khz) / data->pixel_clk_khz;
+	// vcfg->HorizontalBackPorch =
+	// 	(mdev->timings.hbp * data->lane_clk_khz) / data->pixel_clk_khz;
+	// vcfg->HorizontalLine =
+	// 	((mdev->timings.hactive + mdev->timings.hsync + mdev->timings.hbp +
+	// 	  mdev->timings.hfp) * data->lane_clk_khz) / data->pixel_clk_khz;
+
 	vcfg->VerticalSyncActive = mdev->timings.vsync;
 	vcfg->VerticalBackPorch = mdev->timings.vbp;
 	vcfg->VerticalFrontPorch = mdev->timings.vfp;
@@ -303,6 +343,14 @@ static int mipi_dsi_stm32_attach(const struct device *dev, uint8_t channel,
 		LOG_ERR("Setup DSI video mode failed! (%d)", ret);
 		return -ret;
 	}
+
+	if (HAL_DSI_SetGenericVCID(&data->hdsi, 0) != HAL_OK) {
+		LOG_ERR("Failed to set DSI generic VCID");
+		return -1;
+	}
+
+	/* Configure DSI PHY clock and perform LCD reset */
+	stm32_dsi_system_clock_config();
 
 	if (IS_ENABLED(CONFIG_MIPI_DSI_LOG_LEVEL_DBG)) {
 		mipi_dsi_stm32_log_config(dev);
@@ -407,7 +455,7 @@ static DEVICE_API(mipi_dsi, dsi_stm32_api) = {
 	.transfer = mipi_dsi_stm32_transfer,
 };
 
-static int mipi_dsi_stm32_init(const struct device *dev)
+static int mipi_dsi_stm32_custom_init(const struct device *dev)
 {
 	const struct mipi_dsi_stm32_config *config = dev->config;
 	int ret;
@@ -433,8 +481,6 @@ static int mipi_dsi_stm32_init(const struct device *dev)
 
 	return 0;
 }
-
-#define CHILD_GET_DATA_LANES(child) DT_PROP(child, data_lanes)
 
 #define STM32_MIPI_DSI_DEVICE(inst)								\
 	COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, host_timeouts),					\
@@ -520,7 +566,7 @@ static int mipi_dsi_stm32_init(const struct device *dev)
 			.PLLODF = DT_INST_PROP(inst, pll_odf),					\
 		},										\
 	};											\
-	DEVICE_DT_INST_DEFINE(inst, &mipi_dsi_stm32_init, NULL,					\
+	DEVICE_DT_INST_DEFINE(inst, &mipi_dsi_stm32_custom_init, NULL,				\
 			      &stm32_dsi_data_##inst, &stm32_dsi_config_##inst,			\
 			      POST_KERNEL, CONFIG_MIPI_DSI_INIT_PRIORITY, &dsi_stm32_api);
 

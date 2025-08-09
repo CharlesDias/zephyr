@@ -45,14 +45,17 @@ LOG_MODULE_REGISTER(display_stm32_ltdc, CONFIG_DISPLAY_LOG_LEVEL);
 #define LTDC_PCPOL_ACTIVE_HIGH    0x10000000
 
 #if CONFIG_STM32_LTDC_ARGB8888
+#warning "Using CONFIG_STM32_LTDC_ARGB8888 pixel format"
 #define STM32_LTDC_INIT_PIXEL_SIZE	4u
 #define STM32_LTDC_INIT_PIXEL_FORMAT	LTDC_PIXEL_FORMAT_ARGB8888
 #define DISPLAY_INIT_PIXEL_FORMAT	PIXEL_FORMAT_ARGB_8888
 #elif CONFIG_STM32_LTDC_RGB888
+#warning "Using CONFIG_STM32_LTDC_RGB888 pixel format"
 #define STM32_LTDC_INIT_PIXEL_SIZE	3u
 #define STM32_LTDC_INIT_PIXEL_FORMAT	LTDC_PIXEL_FORMAT_RGB888
 #define DISPLAY_INIT_PIXEL_FORMAT	PIXEL_FORMAT_RGB_888
 #elif CONFIG_STM32_LTDC_RGB565
+#warning "Using CONFIG_STM32_LTDC_RGB565 pixel format"
 #define STM32_LTDC_INIT_PIXEL_SIZE	2u
 #define STM32_LTDC_INIT_PIXEL_FORMAT	LTDC_PIXEL_FORMAT_RGB565
 #define DISPLAY_INIT_PIXEL_FORMAT	PIXEL_FORMAT_BGR_565
@@ -344,6 +347,7 @@ static int stm32_ltdc_init(const struct device *dev)
 #if defined(CONFIG_SOC_SERIES_STM32N6X)
 	RIMC_MasterConfig_t rimc = {0};
 #endif
+	LOG_INF("Initializing STM32 LTDC Display Driver");
 
 	/* Configure and set display on/off GPIO */
 	if (config->disp_on_gpio.port) {
@@ -484,6 +488,7 @@ static int stm32_ltdc_init(const struct device *dev)
 	/* Set the line interrupt position */
 	LTDC->LIPCR = 0U;
 
+	LOG_INF("STM32 LTDC Display Driver initialized");
 	return 0;
 }
 
