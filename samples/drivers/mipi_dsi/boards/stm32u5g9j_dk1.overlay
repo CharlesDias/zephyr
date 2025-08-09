@@ -29,7 +29,8 @@
 	// };
 
 	mipi_dsi: dsihost@40016c00 {
-		compatible = "st,stm32-custom-mipi-dsi";
+		compatible = "st,stm32-mipi-dsi";
+		// compatible = "st,stm32-custom-mipi-dsi";
 		#address-cells = <1>;
 		#size-cells = <0>;
 		reg = <0x40016C00 0x1000>;
@@ -125,7 +126,7 @@
 };
 
 &ltdc {
-	compatible = "st,stm32-ltdc-custom";
+	// compatible = "st,stm32-ltdc-custom";
 	width = <480>;
 	height = <481>;
 	pixel-format = <0>; /* LTDC_PIXEL_FORMAT_ARGB8888 */
