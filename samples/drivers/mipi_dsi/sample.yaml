@@ -1,0 +1,22 @@
+sample:
+  name: MIPI DSI STM32 HAL Sample
+  description: >
+    Sample application demonstrating MIPI DSI functionality using STM32 HAL
+    on the STM32U5G9J-DK1 board. This sample initializes the DSI host,
+    LTDC controller, and DMA2D, then displays a simple test pattern.
+tests:
+  sample.drivers.mipi_dsi.stm32:
+    tags:
+      - display
+      - mipi_dsi
+      - stm32
+      - hal
+    integration_platforms:
+      - stm32u5g9j_dk1
+    platform_allow:
+      - stm32u5g9j_dk1
+    harness: console
+    harness_config:
+      type: one_line
+      regex:
+        - "Display subsystem initialized successfully!"
