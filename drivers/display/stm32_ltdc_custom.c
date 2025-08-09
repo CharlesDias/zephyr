@@ -185,8 +185,6 @@ void stm32_ltdc_custom_lcd_set_default_clock(void)
 int stm32_ltdc_custom_ltdc_init(struct stm32_ltdc_custom_data *data,
 				const struct stm32_ltdc_custom_config *config)
 {
-	LOG_INF("Initializing LTDC...");
-
 	/* Enable LTDC clock */
 	__HAL_RCC_LTDC_CLK_ENABLE();
 
@@ -199,6 +197,8 @@ int stm32_ltdc_custom_ltdc_init(struct stm32_ltdc_custom_data *data,
 		LOG_ERR("Failed to configure LTDC layer");
 		return -1;
 	}
+
+	LOG_INF("STM32 LTDC Display Driver initialized");
 
 	/* Log LTDC initialization parameters */
 	LOG_INF("LTDC Init Parameters:");
@@ -225,8 +225,8 @@ int stm32_ltdc_custom_ltdc_init(struct stm32_ltdc_custom_data *data,
 	LOG_INF("  PixelFormat: 0x%08X", data->hltdc.LayerCfg[0].PixelFormat);
 	LOG_INF("  Alpha: %d", data->hltdc.LayerCfg[0].Alpha);
 	LOG_INF("  Alpha0: %d", data->hltdc.LayerCfg[0].Alpha0);
-	LOG_INF("  BlendingFactor1: %d", data->hltdc.LayerCfg[0].BlendingFactor1);
-	LOG_INF("  BlendingFactor2: %d", data->hltdc.LayerCfg[0].BlendingFactor2);
+	LOG_INF("  BlendingFactor1: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor1);
+	LOG_INF("  BlendingFactor2: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor2);
 	LOG_INF("  FBStartAddress: 0x%08X", data->hltdc.LayerCfg[0].FBStartAdress);
 	LOG_INF("  ImageWidth: %d", data->hltdc.LayerCfg[0].ImageWidth);
 	LOG_INF("  ImageHeight: %d", data->hltdc.LayerCfg[0].ImageHeight);
@@ -249,7 +249,6 @@ int stm32_ltdc_custom_ltdc_init(struct stm32_ltdc_custom_data *data,
 	// LOG_INF("  Horizontal Back Porch: %d pixels", data->hltdc.Init.AccumulatedHBP - data->hltdc.Init.HorizontalSync - 1);
 	// LOG_INF("  Vertical Back Porch: %d lines", data->hltdc.Init.AccumulatedVBP - data->hltdc.Init.VerticalSync - 1);
 
-	LOG_INF("LTDC initialized successfully");
 	return 0;
 }
 
@@ -260,7 +259,7 @@ int stm32_ltdc_custom_init(const struct device *dev)
 	const struct stm32_ltdc_custom_config *config = dev->config;
 	int ret;
 
-	LOG_INF("HAL and SYSTEM CLOCK - Initialization");
+	LOG_INF("Initializing STM32 LTDC Display Driver");
 
 	/* Initialize HAL */
 	HAL_Init();
@@ -271,8 +270,6 @@ int stm32_ltdc_custom_init(const struct device *dev)
 	/* Configure system clocks */
 	stm32_ltdc_custom_system_clock_config();
 	stm32_ltdc_custom_periph_clock_config();
-
-	LOG_INF("STM32 LTDC Display Driver - Hardware Initialization");
 
 	data->current_pixel_format = DISPLAY_INIT_PIXEL_FORMAT;
 	data->current_pixel_size = STM32_LTDC_INIT_PIXEL_SIZE;
@@ -285,7 +282,6 @@ int stm32_ltdc_custom_init(const struct device *dev)
 
 	data->initialized = true;
 
-	LOG_INF("STM32 LTDC Display Driver initialized successfully!");
 	return 0;
 }
 

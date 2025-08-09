@@ -489,6 +489,39 @@ static int stm32_ltdc_init(const struct device *dev)
 	LTDC->LIPCR = 0U;
 
 	LOG_INF("STM32 LTDC Display Driver initialized");
+
+	/* Log LTDC initialization parameters */
+	LOG_INF("LTDC Init Parameters:");
+	LOG_INF("  Instance: 0x%08X", (uint32_t)data->hltdc.Instance);
+	LOG_INF("  HSPolarity: 0x%08X", data->hltdc.Init.HSPolarity);
+	LOG_INF("  VSPolarity: 0x%08X", data->hltdc.Init.VSPolarity);
+	LOG_INF("  DEPolarity: 0x%08X", data->hltdc.Init.DEPolarity);
+	LOG_INF("  PCPolarity: 0x%08X", data->hltdc.Init.PCPolarity);
+	LOG_INF("  HorizontalSync: %d", data->hltdc.Init.HorizontalSync);
+	LOG_INF("  VerticalSync: %d", data->hltdc.Init.VerticalSync);
+	LOG_INF("  AccumulatedHBP: %d", data->hltdc.Init.AccumulatedHBP);
+	LOG_INF("  AccumulatedVBP: %d", data->hltdc.Init.AccumulatedVBP);
+	LOG_INF("  AccumulatedActiveW: %d", data->hltdc.Init.AccumulatedActiveW);
+	LOG_INF("  AccumulatedActiveH: %d", data->hltdc.Init.AccumulatedActiveH);
+	LOG_INF("  TotalWidth: %d", data->hltdc.Init.TotalWidth);
+	LOG_INF("  TotalHeight: %d", data->hltdc.Init.TotalHeigh);
+	LOG_INF("  Backcolor RGB: (%d, %d, %d)", data->hltdc.Init.Backcolor.Red,
+		data->hltdc.Init.Backcolor.Green, data->hltdc.Init.Backcolor.Blue);
+
+	/* Log Layer configuration parameters */
+	LOG_INF("LTDC Layer 0 Configuration:");
+	LOG_INF("  Window X0: %d, X1: %d", data->hltdc.LayerCfg[0].WindowX0, data->hltdc.LayerCfg[0].WindowX1);
+	LOG_INF("  Window Y0: %d, Y1: %d", data->hltdc.LayerCfg[0].WindowY0, data->hltdc.LayerCfg[0].WindowY1);
+	LOG_INF("  PixelFormat: 0x%08X", data->hltdc.LayerCfg[0].PixelFormat);
+	LOG_INF("  Alpha: %d", data->hltdc.LayerCfg[0].Alpha);
+	LOG_INF("  Alpha0: %d", data->hltdc.LayerCfg[0].Alpha0);
+	LOG_INF("  BlendingFactor1: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor1);
+	LOG_INF("  BlendingFactor2: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor2);
+	LOG_INF("  FBStartAddress: 0x%08X", data->hltdc.LayerCfg[0].FBStartAdress);
+	LOG_INF("  ImageWidth: %d", data->hltdc.LayerCfg[0].ImageWidth);
+	LOG_INF("  ImageHeight: %d", data->hltdc.LayerCfg[0].ImageHeight);
+	LOG_INF("  Layer Backcolor RGB: (%d, %d, %d)", data->hltdc.LayerCfg[0].Backcolor.Red,
+		data->hltdc.LayerCfg[0].Backcolor.Green, data->hltdc.LayerCfg[0].Backcolor.Blue);
 	return 0;
 }
 
