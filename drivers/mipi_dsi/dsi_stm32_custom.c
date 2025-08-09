@@ -308,18 +308,13 @@ static int mipi_dsi_stm32_attach(const struct device *dev, uint8_t channel,
 	vcfg->NumberOfChunks = 0;
 	vcfg->NullPacketSize = 0xFFFU;
 
-	vcfg->HorizontalSyncActive = 6;
-	vcfg->HorizontalBackPorch = 3;
-	vcfg->HorizontalLine = 1452;
-	#warning "Need to implement timing calculations"
-	// vcfg->HorizontalSyncActive =
-	// 	(mdev->timings.hsync * data->lane_clk_khz) / data->pixel_clk_khz;
-	// vcfg->HorizontalBackPorch =
-	// 	(mdev->timings.hbp * data->lane_clk_khz) / data->pixel_clk_khz;
-	// vcfg->HorizontalLine =
-	// 	((mdev->timings.hactive + mdev->timings.hsync + mdev->timings.hbp +
-	// 	  mdev->timings.hfp) * data->lane_clk_khz) / data->pixel_clk_khz;
-
+	vcfg->HorizontalSyncActive =
+		(mdev->timings.hsync * data->lane_clk_khz) / data->pixel_clk_khz;
+	vcfg->HorizontalBackPorch =
+		(mdev->timings.hbp * data->lane_clk_khz) / data->pixel_clk_khz;
+	vcfg->HorizontalLine =
+		((mdev->timings.hactive + mdev->timings.hsync + mdev->timings.hbp +
+		  mdev->timings.hfp) * data->lane_clk_khz) / data->pixel_clk_khz;
 	vcfg->VerticalSyncActive = mdev->timings.vsync;
 	vcfg->VerticalBackPorch = mdev->timings.vbp;
 	vcfg->VerticalFrontPorch = mdev->timings.vfp;

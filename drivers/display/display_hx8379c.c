@@ -348,9 +348,9 @@ static int hx8379c_init(const struct device *dev)
 	// mdev.mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_MODE_LPM;
 
 	mdev.timings.hactive = config->panel_width;
-	// mdev.timings.hfront_porch = config->hfront_porch;
-	// mdev.timings.hback_porch = config->hback_porch;
-	// mdev.timings.hsync = config->hsync;
+	mdev.timings.hsync = 24;
+	mdev.timings.hbp = 12;
+	mdev.timings.hfp = 5292;
 	mdev.timings.vactive = config->panel_height;
 	mdev.timings.vfp = 50;
 	mdev.timings.vbp = 12;
