@@ -201,16 +201,15 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 		return ret;
 	}
 
+#ifdef CONFIG_SOC_SERIES_STM32U5X
+	/* LANE_BYTE_CLOCK = CLK_IN / PLLIDF * 2 * PLLNDIV / PLLODF / 8 */
+	data->lane_clk_khz = hse_clock / data->pll_init.PLLIDF * 2 * data->pll_init.PLLNDIV /
+			     data->pll_init.PLLODF / 8 / 1000;
+#else
 	/* LANE_BYTE_CLOCK = CLK_IN / PLLIDF * 2 * PLLNDIV / 2 / PLLODF / 8 */
 	data->lane_clk_khz = hse_clock / data->pll_init.PLLIDF * 2 * data->pll_init.PLLNDIV / 2 /
 			     (1UL << data->pll_init.PLLODF) / 8 / 1000;
-
-	LOG_WRN("pixel_clk_khz: %u", data->pixel_clk_khz);
-	LOG_WRN("hse_clock: %u", hse_clock);
-	LOG_WRN("PLLIDF: %u", data->pll_init.PLLIDF);
-	LOG_WRN("PLLNDIV: %u", data->pll_init.PLLNDIV);
-	LOG_WRN("PLLODF: %u", data->pll_init.PLLODF);
-	LOG_WRN("lane_clk_khz: %u", data->lane_clk_khz);
+#endif
 
 	/* stm32x_hal_dsi: The values 0 and 1 stop the TX_ESC clock generation */
 	data->hdsi.Init.TXEscapeCkdiv = 0;
@@ -224,25 +223,6 @@ static int mipi_dsi_stm32_host_init(const struct device *dev)
 	if (data->hdsi.Init.TXEscapeCkdiv < 2) {
 		LOG_WRN("DSI TX escape clock disabled.");
 	}
-
-	LOG_WRN("DEFAULT DSI PHY and PLL settings");
-	LOG_WRN("  TXEscapeCkdiv %u", data->hdsi.Init.TXEscapeCkdiv);
-	LOG_WRN("  PHYFrequencyRange %u", data->hdsi.Init.PHYFrequencyRange);
-	LOG_WRN("  PLLVCORange %u", data->pll_init.PLLVCORange);
-#ifdef CONFIG_SOC_SERIES_STM32U5X
-#warning "Applying STM32U5 specific DSI PHY and PLL settings"
-	data->hdsi.Init.TXEscapeCkdiv = 4;
-	data->hdsi.Init.PHYFrequencyRange = DSI_DPHY_FRANGE_450MHZ_510MHZ;
-	// data->hdsi.Init.PHYLowPowerOffset = PHY_LP_OFFSSET_0_CLKP;
-
-	data->pll_init.PLLVCORange = DSI_DPHY_VCO_FRANGE_800MHZ_1GHZ;
-	// data->pll_init.PLLChargePump = DSI_PLL_CHARGE_PUMP_2000HZ_4400HZ;
-	// data->pll_init.PLLTuning = DSI_PLL_LOOP_FILTER_2000HZ_4400HZ;
-#endif
-	LOG_WRN("STM32Cube DSI PHY and PLL settings");
-	LOG_WRN("  TXEscapeCkdiv %u", data->hdsi.Init.TXEscapeCkdiv);
-	LOG_WRN("  PHYFrequencyRange %u", data->hdsi.Init.PHYFrequencyRange);
-	LOG_WRN("  PLLVCORange %u", data->pll_init.PLLVCORange);
 
 	ret = HAL_DSI_Init(&data->hdsi, &data->pll_init);
 	if (ret != HAL_OK) {
@@ -557,6 +537,12 @@ static int mipi_dsi_stm32_init(const struct device *dev)
 					DT_INST_PROP(inst, non_continuous) ?			\
 						DSI_AUTO_CLK_LANE_CTRL_ENABLE :			\
 						DSI_AUTO_CLK_LANE_CTRL_DISABLE,			\
+				COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, phy_freq_range),	\
+						(.PHYFrequencyRange = DT_INST_PROP(inst, phy_freq_range)), \
+						()),						\
+				COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, phy_low_power_offset),	\
+						(.PHYLowPowerOffset = DT_INST_PROP(inst, phy_low_power_offset)), \
+						()),						\
 			},									\
 		},										\
 		.host_timeouts = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, host_timeouts),	\
@@ -581,6 +567,15 @@ static int mipi_dsi_stm32_init(const struct device *dev)
 			.PLLNDIV = DT_INST_PROP(inst, pll_ndiv),				\
 			.PLLIDF = DT_INST_PROP(inst, pll_idf),					\
 			.PLLODF = DT_INST_PROP(inst, pll_odf),					\
+			COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, pll_vco_range),			\
+					(.PLLVCORange = DT_INST_PROP(inst, pll_vco_range)),	\
+					()),							\
+			COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, pll_charge_pump),		\
+					(.PLLChargePump = DT_INST_PROP(inst, pll_charge_pump)),	\
+					()),							\
+			COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, pll_tuning),			\
+					(.PLLTuning = DT_INST_PROP(inst, pll_tuning)),		\
+					()),							\
 		},										\
 	};											\
 	DEVICE_DT_INST_DEFINE(inst, &mipi_dsi_stm32_init, NULL,					\

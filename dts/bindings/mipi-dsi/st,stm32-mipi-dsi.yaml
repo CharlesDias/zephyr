@@ -80,6 +80,36 @@ properties:
     description: |
       DSI HOST dedicated PLL output division factor.
 
+  pll-vco-range:
+    type: int
+    description: |
+      DSI host dedicated PLL VCO range available on STM32U5 MCUs.
+      This parameter can be any value from 0 to 1.
+
+  pll-charge-pump:
+    type: int
+    description: |
+      DSI host dedicated PLL charge pump available on STM32U5 MCUs.
+      This parameter can be any value from 0 to 3.
+
+  pll-tuning:
+    type: int
+    description: |
+      DSI host dedicated PLL tuning available on STM32U5 MCUs.
+      This parameter can be any value from 0 to 2.
+
+  phy-freq-range:
+    type: int
+    description: |
+      DSI host dedicated PHY frequency range available on STM32U5 MCUs.
+      This parameter can be any value from 0 to 8.
+
+  phy-low-power-offset:
+    type: int
+    description: |
+      DSI host dedicated PHY low power offset available on STM32U5 MCUs.
+      This parameter can be any value from 0 to 15.
+
   active-errors:
     type: int
     description: |

@@ -26,10 +26,17 @@ struct hx8379c_config {
 	const struct device *mipi_dsi;
 	const struct gpio_dt_spec reset_gpio;
 	const struct gpio_dt_spec backlight;
-	uint8_t num_of_lanes;
-	uint8_t pixel_format;
 	uint16_t panel_width;
 	uint16_t panel_height;
+	uint16_t rotation;
+	uint16_t hsync;
+	uint16_t hbp;
+	uint16_t hfp;
+	uint16_t vfp;
+	uint16_t vbp;
+	uint16_t vsync;
+	uint8_t num_of_lanes;
+	uint8_t pixel_format;
 	uint8_t channel;
 };
 
@@ -347,14 +354,15 @@ static int hx8379c_init(const struct device *dev)
 	mdev.mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST;
 	// mdev.mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_MODE_LPM;
 
+	#warning "Pixel clock changed from 62500 to 20833"
 	mdev.timings.hactive = config->panel_width;
-	mdev.timings.hsync = 24;
-	mdev.timings.hbp = 12;
-	mdev.timings.hfp = 5292;
+	mdev.timings.hsync = config->hsync; //2; //6; //24;
+	mdev.timings.hbp = config->hbp; //1; //3; //12;
+	mdev.timings.hfp = config->hfp; //1; //1323; //5292
 	mdev.timings.vactive = config->panel_height;
-	mdev.timings.vfp = 50;
-	mdev.timings.vbp = 12;
-	mdev.timings.vsync = 1;
+	mdev.timings.vfp = config->vfp; //50;
+	mdev.timings.vbp = config->vbp; //12;
+	mdev.timings.vsync = config->vsync; //1;
 
 	ret = mipi_dsi_attach(config->mipi_dsi, config->channel, &mdev);
 	if (ret < 0) {
@@ -383,24 +391,26 @@ static int hx8379c_init(const struct device *dev)
 	return ret;
 }
 
-#define HX8379C_PANEL_DEVICE(id)						\
-	static const struct hx8379c_config hx8379c_config_##id = {		\
-		.mipi_dsi = DEVICE_DT_GET(DT_INST_BUS(id)),			\
-		.reset_gpio = GPIO_DT_SPEC_INST_GET_OR(id, reset_gpios, {0}),	\
-		.backlight = GPIO_DT_SPEC_INST_GET_OR(id, bl_gpios, {0}),	\
-		.num_of_lanes = DT_INST_PROP_BY_IDX(id, data_lanes, 0),		\
-		.pixel_format = DT_INST_PROP(id, pixel_format),			\
-		.panel_width = DT_INST_PROP(id, width),				\
-		.panel_height = DT_INST_PROP(id, height),			\
-		.channel = DT_INST_REG_ADDR(id),				\
-	};									\
-	DEVICE_DT_INST_DEFINE(id,						\
-			    &hx8379c_init,					\
-			    NULL,						\
-			    NULL,						\
-			    &hx8379c_config_##id,				\
-			    POST_KERNEL,					\
-			    CONFIG_DISPLAY_HX8379C_INIT_PRIORITY,		\
-			    &hx8379c_api);
+#define HX8379C_PANEL_DEVICE(id)							\
+	static const struct hx8379c_config hx8379c_config_##id = {			\
+		.mipi_dsi = DEVICE_DT_GET(DT_INST_BUS(id)),				\
+		.reset_gpio = GPIO_DT_SPEC_INST_GET_OR(id, reset_gpios, {0}),		\
+		.backlight = GPIO_DT_SPEC_INST_GET_OR(id, bl_gpios, {0}),		\
+		.num_of_lanes = DT_INST_PROP_BY_IDX(id, data_lanes, 0),			\
+		.pixel_format = DT_INST_PROP(id, pixel_format),				\
+		.panel_width = DT_INST_PROP(id, width),					\
+		.panel_height = DT_INST_PROP(id, height),				\
+		.channel = DT_INST_REG_ADDR(id),					\
+		.rotation = DT_INST_PROP(id, rotation),					\
+		.hsync = DT_PROP(DT_INST_CHILD(id, display_timings), hsync_len),	\
+		.hbp = DT_PROP(DT_INST_CHILD(id, display_timings), hback_porch),	\
+		.hfp = DT_PROP(DT_INST_CHILD(id, display_timings), hfront_porch),	\
+		.vsync = DT_PROP(DT_INST_CHILD(id, display_timings), vsync_len),	\
+		.vbp = DT_PROP(DT_INST_CHILD(id, display_timings), vback_porch),	\
+		.vfp = DT_PROP(DT_INST_CHILD(id, display_timings), vfront_porch),	\
+	};										\
+	DEVICE_DT_INST_DEFINE(id, &hx8379c_init, NULL,					\
+			    NULL, &hx8379c_config_##id, POST_KERNEL,			\
+			    CONFIG_DISPLAY_HX8379C_INIT_PRIORITY, &hx8379c_api);
 
 DT_INST_FOREACH_STATUS_OKAY(HX8379C_PANEL_DEVICE)

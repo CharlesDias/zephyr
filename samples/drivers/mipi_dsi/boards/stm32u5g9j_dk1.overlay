@@ -37,7 +37,7 @@
 		clock-names = "dsiclk", "refclk", "pixelclk";
 		clocks = <&rcc STM32_CLOCK(APB2, 27U)>,
 				<&rcc STM32_SRC_HSE NO_SEL>,
-				<&rcc STM32_SRC_PLL3_P NO_SEL>;
+				<&rcc STM32_SRC_PLL3_R NO_SEL>;
 		resets = <&rctl STM32_RESET(APB2, 27U)>;
 		status = "disabled";
 	};
@@ -74,9 +74,15 @@
 	status = "okay";
 
 	/* DSI PLL configuration - values from STM32CubeU5 working config */
-	pll-ndiv = <125>;     /* PLLDSINDIV = 125 */
-	pll-idf = <4>;        /* DSI_PLL_IN_DIV4 */
-	pll-odf = <2>;        /* DSI_PLL_OUT_DIV2 */
+	pll-ndiv = <125>;       /* PLLDSINDIV = 125 */
+	pll-idf = <4>;          /* DSI_PLL_IN_DIV4 */
+	pll-odf = <2>;          /* DSI_PLL_OUT_DIV2 */
+	pll-vco-range = <1>;    /* DSI_DPHY_VCO_FRANGE_800MHZ_1GHZ */
+	pll-charge-pump = <0>;  /* DSI_PLL_CHARGE_PUMP_2000HZ_4400HZ */
+	pll-tuning = <0>;       /* DSI_PLL_LOOP_FILTER_2000HZ_4400HZ */
+
+	phy-freq-range = <8>;       /* DSI_DPHY_FRANGE_450MHZ_510MHZ */
+	phy-low-power-offset = <0>; /* PHY_LP_OFFSSET_0_CLKP */
 
 	/* DSI signal polarity configuration matching STM32CubeU5 */
 	hs-active-high;       /* Horizontal sync active high */
@@ -103,9 +109,6 @@
 	              <0>,    /* DataLaneMaxReadTime = 0 (default) */
 	              <7>;    /* StopWaitTime = 7 */
 
-	// /* TX Escape Clock Divider - exact value from STM32CubeU5 reference */
-	// tx-escape-clk-div = <4>;
-
 	/* HX8379C panel configuration for STM32U5G9J-DK1 */
 	hx8379c: hx8379c@0 {
 		status = "okay";
@@ -119,9 +122,24 @@
 		/* DSI configuration matching STM32CubeU5 working example */
 		data-lanes = <2>; /* DSI_TWO_DATA_LANES = 1 in STM32 HAL */
 		pixel-format = <MIPI_DSI_PIXFMT_RGB888>;
+		rotation = <0>;
 
 		reset-gpios = <&gpiod 5 GPIO_ACTIVE_HIGH>;  /* PD5 - confirmed from STM32 DSI example */
 		bl-gpios = <&gpioi 6 GPIO_ACTIVE_HIGH>;    /* PI6 - confirmed from STM32 DSI example */
+
+		display-timings {
+			compatible = "zephyr,panel-timing";
+			hsync-active = <0>;
+			vsync-active = <0>;
+			de-active = <0>;
+			pixelclk-active = <0>;
+			hsync-len = <2>;
+			hback-porch = <1>;
+			hfront-porch = <1>;
+			vsync-len = <1>;
+			vback-porch = <12>;
+			vfront-porch = <50>;
+		};
 	};
 };
 
