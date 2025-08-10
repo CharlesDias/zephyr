@@ -59,6 +59,7 @@ struct mipi_dsi_stm32_data {
 	uint32_t pixel_clk_khz;
 };
 
+#ifdef CONFIG_SOC_SERIES_STM32U5X
 /* Configures DSI PHY as DSI clock source */
 static int stm32_dsi_clock_source_config(void)
 {
@@ -82,6 +83,7 @@ static int stm32_dsi_clock_source_config(void)
 
 	return 0;
 }
+#endif
 
 static void mipi_dsi_stm32_log_config(const struct device *dev)
 {
@@ -93,16 +95,20 @@ static void mipi_dsi_stm32_log_config(const struct device *dev)
 	LOG_DBG("  AutomaticClockLaneControl 0x%x", data->hdsi.Init.AutomaticClockLaneControl);
 	LOG_DBG("  TXEscapeCkdiv %u", data->hdsi.Init.TXEscapeCkdiv);
 	LOG_DBG("  NumberOfLanes %u", data->hdsi.Init.NumberOfLanes);
+#ifdef CONFIG_SOC_SERIES_STM32U5X
 	LOG_DBG("  PHYFrequencyRange 0x%x", data->hdsi.Init.PHYFrequencyRange);
 	LOG_DBG("  PHYLowPowerOffset 0x%x", data->hdsi.Init.PHYLowPowerOffset);
+#endif
 
 	LOG_DBG("PLLInit configuration:");
 	LOG_DBG("  PLLNDIV %u", data->pll_init.PLLNDIV);
 	LOG_DBG("  PLLIDF %u", data->pll_init.PLLIDF);
 	LOG_DBG("  PLLODF %u", data->pll_init.PLLODF);
+#ifdef CONFIG_SOC_SERIES_STM32U5X
 	LOG_DBG("  PLLVCORange 0x%x", data->pll_init.PLLVCORange);
 	LOG_DBG("  PLLChargePump 0x%x", data->pll_init.PLLChargePump);
 	LOG_DBG("  PLLTuning 0x%x", data->pll_init.PLLTuning);
+#endif
 
 	LOG_DBG("HAL_DSI_ConfigVideoMode setup:");
 	LOG_DBG("  VirtualChannelID %u", data->vid_cfg.VirtualChannelID);
@@ -538,11 +544,11 @@ static int mipi_dsi_stm32_init(const struct device *dev)
 						DSI_AUTO_CLK_LANE_CTRL_ENABLE :			\
 						DSI_AUTO_CLK_LANE_CTRL_DISABLE,			\
 				COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, phy_freq_range),	\
-						(.PHYFrequencyRange = DT_INST_PROP(inst, phy_freq_range)), \
-						()),						\
+						(.PHYFrequencyRange = DT_INST_PROP(inst, phy_freq_range),), \
+						())						\
 				COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, phy_low_power_offset),	\
-						(.PHYLowPowerOffset = DT_INST_PROP(inst, phy_low_power_offset)), \
-						()),						\
+						(.PHYLowPowerOffset = DT_INST_PROP(inst, phy_low_power_offset),), \
+						())						\
 			},									\
 		},										\
 		.host_timeouts = COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, host_timeouts),	\
@@ -568,14 +574,14 @@ static int mipi_dsi_stm32_init(const struct device *dev)
 			.PLLIDF = DT_INST_PROP(inst, pll_idf),					\
 			.PLLODF = DT_INST_PROP(inst, pll_odf),					\
 			COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, pll_vco_range),			\
-					(.PLLVCORange = DT_INST_PROP(inst, pll_vco_range)),	\
-					()),							\
+					(.PLLVCORange = DT_INST_PROP(inst, pll_vco_range),),	\
+					())							\
 			COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, pll_charge_pump),		\
-					(.PLLChargePump = DT_INST_PROP(inst, pll_charge_pump)),	\
-					()),							\
+					(.PLLChargePump = DT_INST_PROP(inst, pll_charge_pump),),	\
+					())							\
 			COND_CODE_1(DT_INST_NODE_HAS_PROP(inst, pll_tuning),			\
-					(.PLLTuning = DT_INST_PROP(inst, pll_tuning)),		\
-					()),							\
+					(.PLLTuning = DT_INST_PROP(inst, pll_tuning),),		\
+					())							\
 		},										\
 	};											\
 	DEVICE_DT_INST_DEFINE(inst, &mipi_dsi_stm32_init, NULL,					\
