@@ -62,67 +62,6 @@ static DEVICE_API(display, hx8379c_api) = {
 	// .set_orientation = hx8379c_set_orientation,
 };
 
-static int hx8379c_check_id(const struct device *dev)
-{
-	const struct hx8379c_config *config = dev->config;
-	uint8_t id1 = 0, id2 = 0, id3 = 0;
-	int ret;
-
-	/* Read ID1 register (0xDA) */
-	ret = mipi_dsi_dcs_read(config->mipi_dsi, config->channel, HX8379C_CMD_ID1, &id1, sizeof(id1));
-	if (ret != sizeof(id1)) {
-		LOG_ERR("Read panel ID1 failed! (%d)", ret);
-		return -EIO;
-	}
-
-	/* Read ID2 register (0xDB) */
-	ret = mipi_dsi_dcs_read(config->mipi_dsi, config->channel, HX8379C_CMD_ID2, &id2, sizeof(id2));
-	if (ret != sizeof(id2)) {
-		LOG_ERR("Read panel ID2 failed! (%d)", ret);
-		return -EIO;
-	}
-
-	/* Read ID3 register (0xDC) */
-	ret = mipi_dsi_dcs_read(config->mipi_dsi, config->channel, HX8379C_CMD_ID3, &id3, sizeof(id3));
-	if (ret != sizeof(id3)) {
-		LOG_ERR("Read panel ID3 failed! (%d)", ret);
-		return -EIO;
-	}
-
-	LOG_INF("Panel IDs: ID1=0x%02X, ID2=0x%02X, ID3=0x%02X", id1, id2, id3);
-
-	/* Note: According to HX8379C datasheet, ID values are customer-defined in OTP
-	 * Default ID1=0x00, but actual values depend on the specific panel manufacturer
-	 * For now, we'll log the values and only verify if they're non-zero (indicating valid read)
-	 */
-
-	/* Basic sanity check - at least one ID should be non-zero for a valid panel */
-	if (id1 == 0x00 && id2 == 0x00 && id3 == 0x00) {
-		LOG_WRN("All panel IDs are 0x00 - this might indicate communication issues or default values");
-		/* Don't fail here as 0x00 might be valid for some panels */
-	}
-
-	/* TODO: Once actual panel ID values are known, uncomment and update these checks:
-	 *
-	 * if (id1 != HX8379C_ID1) {
-	 *     LOG_ERR("ID1 mismatch: 0x%02X (expected 0x%02X)", id1, HX8379C_ID1);
-	 *     return -EINVAL;
-	 * }
-	 *
-	 * if (id2 != HX8379C_ID2) {
-	 *     LOG_ERR("ID2 mismatch: 0x%02X (expected 0x%02X)", id2, HX8379C_ID2);
-	 *     return -EINVAL;
-	 * }
-	 *
-	 * if (id3 != HX8379C_ID3) {
-	 *     LOG_ERR("ID3 mismatch: 0x%02X (expected 0x%02X)", id3, HX8379C_ID3);
-	 *     return -EINVAL;
-	 * }
-	 */
-
-	return 0;
-}
-
 static int hx8379c_configure(const struct device *dev)
 {
 	const struct hx8379c_config *config = dev->config;
@@ -369,12 +308,6 @@ static int hx8379c_init(const struct device *dev)
 		LOG_ERR("MIPI-DSI attach failed! (%d)", ret);
 		return ret;
 	}
-
-	// ret = hx8379c_check_id(dev);
-	// if (ret) {
-	// 	LOG_ERR("Panel ID check failed! (%d)", ret);
-	// 	return ret;
-	// }
 
 	ret = hx8379c_configure(dev);
 	if (ret) {

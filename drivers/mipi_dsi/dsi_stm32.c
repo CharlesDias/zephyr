@@ -64,7 +64,6 @@ struct mipi_dsi_stm32_data {
 static int stm32_dsi_clock_source_config(void)
 {
 	RCC_PeriphCLKInitTypeDef DSIPHYInitPeriph;
-	int ret;
 
 	/* Switch to DSI PHY PLL clock */
 	DSIPHYInitPeriph.PeriphClockSelection = RCC_PERIPHCLK_DSI;
