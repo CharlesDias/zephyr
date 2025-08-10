@@ -11,53 +11,9 @@
 
 / {
 	chosen {
-		/* Ensure we have enough stack space for HAL operations */
-		zephyr,main-stack-size = <8192>;
 		zephyr,display = &ltdc;
 	};
-
-	// reserved-memory {
-	// 	#address-cells = <1>;
-	// 	#size-cells = <1>;
-
-	// 	/* Frame buffer memory region for LTDC - 480x481x4 bytes */
-	// 	ltdc_fb: ltdc_framebuffer@200d0000 {
-	// 		compatible = "zephyr,memory-region";
-	// 		reg = <0x200d0000 0x95000>; /* 924480 bytes */
-	// 		zephyr,memory-region = "LTDC_FB";
-	// 	};
-	// };
-
-	mipi_dsi: dsihost@40016c00 {
-		compatible = "st,stm32-mipi-dsi";
-		// compatible = "st,stm32-custom-mipi-dsi";
-		#address-cells = <1>;
-		#size-cells = <0>;
-		reg = <0x40016C00 0x1000>;
-		clock-names = "dsiclk", "refclk", "pixelclk";
-		clocks = <&rcc STM32_CLOCK(APB2, 27U)>,
-				<&rcc STM32_SRC_HSE NO_SEL>,
-				<&rcc STM32_SRC_PLL3_R NO_SEL>;
-		resets = <&rctl STM32_RESET(APB2, 27U)>;
-		status = "disabled";
-	};
 };
-
-/* Configure USART1 for console output */
-&usart1 {
-	status = "okay";
-};
-
-
-// &pll2 {
-// 	div-m = <4>;    /* Input divider: 16MHz / 4 = 4MHz */
-// 	mul-n = <125>;  /* Multiplier: 4MHz * 125 = 500MHz VCO */
-// 	div-p = <2>;    /* P output: 500MHz / 2 = 250MHz */
-// 	div-q = <2>;    /* Q output: 500MHz / 2 = 250MHz */
-// 	div-r = <24>;   /* R output: 500MHz / 24 = 20.83MHz */
-// 	clocks = <&clk_hse>;
-// 	status = "okay";
-// };
 
 /* PLL3 configuration for DSI - based on STM32CubeU5 working configuration */
 &pll3 {
@@ -144,7 +100,6 @@
 };
 
 &ltdc {
-	// compatible = "st,stm32-ltdc-custom";
 	width = <480>;
 	height = <481>;
 	pixel-format = <0>; /* LTDC_PIXEL_FORMAT_ARGB8888 */
