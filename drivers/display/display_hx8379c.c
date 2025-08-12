@@ -1,5 +1,5 @@
 /*
- * Copyright 2023, NXP
+ * Copyright 2025, Charles Dias
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -12,15 +12,36 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
-#include <stm32u5xx_hal.h>
-#include <stm32u5xx_hal_rcc_ex.h>
+LOG_MODULE_REGISTER(hx8379c, CONFIG_DISPLAY_LOG_LEVEL);
 
-LOG_MODULE_REGISTER(hx8379c, LOG_LEVEL_INF);
+/* MIPI DCS commands specific to this display driver */
 
-/* HX8379C DCS Commands */
-#define HX8379C_CMD_ID1 0xDA   /* Read ID1 */
-#define HX8379C_CMD_ID2 0xDB   /* Read ID2 */
-#define HX8379C_CMD_ID3 0xDC   /* Read ID3 */
+/* Set power */
+#define HX8379C_SETPOWER		0xB1
+/* Set display related register */
+#define HX8379C_SETDISP			0xB2
+/* Set display cycle timing */
+#define HX8379C_SETCYC			0xB4
+/* Set VCOM voltage */
+#define HX8379C_SETVCOM			0xB6
+/* Set extended command set */
+#define HX8379C_SETEXTC			0xB9
+/* Set register bank partition index */
+#define HX8379C_SETBANK			0xBD
+/* Set DGC LUT */
+#define HX8379C_SETDGC_LUT		0xC1
+/* Set panel related register */
+#define HX8379C_SETPANEL		0xCC
+/* SETOFFSET */
+#define HX8379C_SETOFFSET		0xD2
+/* Set GIP timing */
+#define HX8379C_SETGIP_0		0xD3
+/* Set forward GIP sequence */
+#define HX8379C_SETGIP_1		0xD5
+/* Set backward GIP sequence */
+#define HX8379C_SETGIP_2		0xD6
+/* Set gamma curve related setting */
+#define HX8379C_SETGAMMA		0xE0
 
 struct hx8379c_config {
 	const struct device *mipi_dsi;
@@ -28,17 +49,69 @@ struct hx8379c_config {
 	const struct gpio_dt_spec backlight;
 	uint16_t panel_width;
 	uint16_t panel_height;
-	uint16_t rotation;
 	uint16_t hsync;
 	uint16_t hbp;
 	uint16_t hfp;
 	uint16_t vfp;
 	uint16_t vbp;
 	uint16_t vsync;
-	uint8_t num_of_lanes;
+	uint8_t data_lanes;
 	uint8_t pixel_format;
 	uint8_t channel;
 };
+
+static int hx8379c_transmit(const struct device *dev, uint8_t cmd,
+			    const void *tx_data, size_t tx_len)
+{
+	const struct hx8379c_config *config = dev->config;
+
+	return mipi_dsi_dcs_write(config->mipi_dsi, config->channel, cmd, tx_data, tx_len);
+}
+
+
+static int hx8379c_blanking_on(const struct device *dev)
+{
+	const struct hx8379c_config *config = dev->config;
+	int ret;
+
+	if (config->backlight.port != NULL) {
+		ret = gpio_pin_set_dt(&config->backlight, 0);
+		if (ret < 0) {
+			LOG_ERR("Failed to disable backlight (%d)", ret);
+			return ret;
+		}
+	}
+
+	ret = hx8379c_transmit(dev, MIPI_DCS_SET_DISPLAY_OFF, NULL, 0);
+	if (ret < 0) {
+		LOG_ERR("Failed to turn off display (%d)", ret);
+		return ret;
+	}
+
+	return 0;
+}
+
+static int hx8379c_blanking_off(const struct device *dev)
+{
+	const struct hx8379c_config *config = dev->config;
+	int ret;
+
+	if (config->backlight.port != NULL) {
+		ret = gpio_pin_set_dt(&config->backlight, 1);
+		if (ret < 0) {
+			LOG_ERR("Failed to enable backlight (%d)", ret);
+			return ret;
+		}
+	}
+
+	ret = hx8379c_transmit(dev, MIPI_DCS_SET_DISPLAY_ON, NULL, 0);
+	if (ret < 0) {
+		LOG_ERR("Failed to turn on display (%d)", ret);
+		return ret;
+	}
+
+	return 0;
+}
 
 static void hx8379c_get_capabilities(const struct device *dev,
 				     struct display_capabilities *capabilities)
@@ -54,189 +127,206 @@ static void hx8379c_get_capabilities(const struct device *dev,
 }
 
 static DEVICE_API(display, hx8379c_api) = {
-	// .blanking_on = hx8379c_blanking_on,
-	// .blanking_off = hx8379c_blanking_off,
-	// .write = hx8379c_write,
+	.blanking_on = hx8379c_blanking_on,
+	.blanking_off = hx8379c_blanking_off,
 	.get_capabilities = hx8379c_get_capabilities,
-	// .set_pixel_format = hx8379c_set_pixel_format,
-	// .set_orientation = hx8379c_set_orientation,
 };
 
 static int hx8379c_configure(const struct device *dev)
 {
-	const struct hx8379c_config *config = dev->config;
 	int ret;
 
-	LOG_INF("Configuring HX8379C DSI panel...");
+	LOG_DBG("Configuring HX8379C DSI panel...");
 
 	/* CMD Mode */
-	uint8_t InitParam1[3] = {0xFF, 0x83, 0x79};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xB9, InitParam1, sizeof(InitParam1));
+	static const uint8_t enable_extension[3] = {0xFF, 0x83, 0x79};
+	ret = hx8379c_transmit(dev, HX8379C_SETEXTC, enable_extension, sizeof(enable_extension));
 	if (ret < 0) {
-		LOG_ERR("Panel init step 1 failed");
+		LOG_ERR("Panel init step 1 failed (%d)", ret);
 		return ret;
 	}
 
-	/* SETPOWER */
-	uint8_t InitParam3[16] = {0x44,0x1C,0x1C,0x37,0x57,0x90,0xD0,0xE2,0x58,0x80,0x38,0x38,0xF8,0x33,0x34,0x42};
-	if (mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xB1, InitParam3, sizeof(InitParam3)) < 0) {
-		LOG_ERR("Panel SETPOWER failed");
-		return -1;
-	}
-
-	/* SETDISP */
-	uint8_t InitParam4[9] = {0x80,0x14,0x0C,0x30,0x20,0x50,0x11,0x42,0x1D};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xB2, InitParam4, sizeof(InitParam4));
+	static const uint8_t power_config[16] = {0x44,0x1C,0x1C,0x37,0x57,0x90,0xD0,0xE2,
+						 0x58,0x80,0x38,0x38,0xF8,0x33,0x34,0x42};
+	ret = hx8379c_transmit(dev, HX8379C_SETPOWER, power_config, sizeof(power_config));
 	if (ret < 0) {
-		LOG_ERR("Panel SETDISP failed");
+		LOG_ERR("Panel SETPOWER failed (%d)", ret);
 		return ret;
 	}
 
-	/* Set display cycle timing */
-	uint8_t InitParam5[10] = {0x01,0xAA,0x01,0xAF,0x01,0xAF,0x10,0xEA,0x1C,0xEA};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xB4, InitParam5, sizeof(InitParam5));
+	/* Verificar, pois tem 6 parâmetros no datasheet */
+	static const uint8_t line_config[9] = {0x80,0x14,0x0C,0x30,0x20,0x50,0x11,0x42,0x1D};
+	ret = hx8379c_transmit(dev, HX8379C_SETDISP, line_config, sizeof(line_config));
 	if (ret < 0) {
-		LOG_ERR("Panel timing config failed");
+		LOG_ERR("Panel SETDISP failed (%d)", ret);
 		return ret;
 	}
 
-	/* SETVCOM */
-	uint8_t InitParam60[4] = {0x00,0x00,0x00,0xC0};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xC7, InitParam60, sizeof(InitParam60));
+	static const uint8_t cycle_config[10] = {0x01,0xAA,0x01,0xAF,0x01,0xAF,0x10,0xEA,
+						 0x1C,0xEA};
+	ret = hx8379c_transmit(dev, HX8379C_SETCYC, cycle_config, sizeof(cycle_config));
 	if (ret < 0) {
-		LOG_ERR("Panel SETVCOM failed");
+		LOG_ERR("Panel timing config failed (%d)", ret);
 		return ret;
 	}
 
-	/* Set Panel Related Registers */
-	uint8_t InitParamCC[1] = {0x02};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xCC, InitParamCC, sizeof(InitParamCC));
+	static const uint8_t c7_config[4] = {0x00,0x00,0x00,0xC0};
+	ret = hx8379c_transmit(dev, 0xC7, c7_config, sizeof(c7_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xCC failed");
+		LOG_ERR("Panel SETVCOM failed (%d)", ret);
 		return ret;
 	}
 
-	uint8_t InitParamD2[1] = {0x77};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xD2, InitParamD2, sizeof(InitParamD2));
+	static const uint8_t panel_config[1] = {0x02};
+	ret = hx8379c_transmit(dev, HX8379C_SETPANEL, panel_config, sizeof(panel_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xD2 failed");
+		LOG_ERR("Panel register SETPANEL failed (%d)", ret);
 		return ret;
 	}
 
-	/* Complex register configuration 0xD3 */
-	uint8_t InitParam50[37] = {0x00,0x07,0x00,0x00,0x00,0x08,0x08,0x32,0x10,0x01,0x00,0x01,0x03,0x72,0x03,0x72,0x00,0x08,0x00,0x08,0x33,0x33,0x05,0x05,0x37,0x05,0x05,0x37,0x0A,0x00,0x00,0x00,0x0A,0x00,0x01,0x00,0x0E};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xD3, InitParam50, sizeof(InitParam50));
+	static const uint8_t offset_config[1] = {0x77};
+	ret = hx8379c_transmit(dev, HX8379C_SETOFFSET, offset_config, sizeof(offset_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xD3 failed");
+		LOG_ERR("Panel register SETOFFSET failed (%d)", ret);
 		return ret;
 	}
 
-	/* Register 0xD5 configuration */
-	uint8_t InitParam51[34] = {0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x19,0x19,0x18,0x18,0x18,0x18,0x19,0x19,0x01,0x00,0x03,0x02,0x05,0x04,0x07,0x06,0x23,0x22,0x21,0x20,0x18,0x18,0x18,0x18,0x00,0x00};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xD5, InitParam51, sizeof(InitParam51));
+	/* Verificar, pois tem 29 parâmetros no datasheet */
+	static const uint8_t gip0_config[37] = {0x00,0x07,0x00,0x00,0x00,0x08,0x08,0x32,
+						0x10,0x01,0x00,0x01,0x03,0x72,0x03,0x72,
+						0x00,0x08,0x00,0x08,0x33,0x33,0x05,0x05,
+						0x37,0x05,0x05,0x37,0x0A,0x00,0x00,0x00,
+						0x0A,0x00,0x01,0x00,0x0E};
+	ret = hx8379c_transmit(dev, HX8379C_SETGIP_0, gip0_config, sizeof(gip0_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xD5 failed");
+		LOG_ERR("Panel register SETGIP_0 failed");
 		return ret;
 	}
 
-	/* Register 0xD6 configuration */
-	uint8_t InitParam52[35] = {0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x19,0x19,0x18,0x18,0x19,0x19,0x18,0x18,0x06,0x07,0x04,0x05,0x02,0x03,0x00,0x01,0x20,0x21,0x22,0x23,0x18,0x18,0x18,0x18};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xD6, InitParam52, sizeof(InitParam52));
+	/* Verificar, pois tem 35 parâmetros no datasheet */
+	static const uint8_t gip1_config[34] = {0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,
+						0x19,0x19,0x18,0x18,0x18,0x18,0x19,0x19,
+						0x01,0x00,0x03,0x02,0x05,0x04,0x07,0x06,
+						0x23,0x22,0x21,0x20,0x18,0x18,0x18,0x18,
+						0x00,0x00};
+	ret = hx8379c_transmit(dev, HX8379C_SETGIP_1, gip1_config, sizeof(gip1_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xD6 failed");
+		LOG_ERR("Panel register SETGIP_1 failed");
 		return ret;
 	}
 
-	/* SET GAMMA */
-	uint8_t InitParam8[42] = {0x00,0x16,0x1B,0x30,0x36,0x3F,0x24,0x40,0x09,0x0D,0x0F,0x18,0x0E,0x11,0x12,0x11,0x14,0x07,0x12,0x13,0x18,0x00,0x17,0x1C,0x30,0x36,0x3F,0x24,0x40,0x09,0x0C,0x0F,0x18,0x0E,0x11,0x14,0x11,0x12,0x07,0x12,0x14,0x18};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xE0, InitParam8, sizeof(InitParam8));
+	static const uint8_t gip2_config[32] = {0x18,0x18,0x18,0x18,0x18,0x18,0x18,0x18,
+						0x19,0x19,0x18,0x18,0x19,0x19,0x18,0x18,
+						0x06,0x07,0x04,0x05,0x02,0x03,0x00,0x01,
+						0x20,0x21,0x22,0x23,0x18,0x18,0x18,0x18};
+	ret = hx8379c_transmit(dev, HX8379C_SETGIP_2, gip2_config, sizeof(gip2_config));
+	if (ret < 0) {
+		LOG_ERR("Panel register SETGIP_2 failed");
+		return ret;
+	}
+
+	static const uint8_t gamma_config[42] = {0x00,0x16,0x1B,0x30,0x36,0x3F,0x24,0x40,
+						 0x09,0x0D,0x0F,0x18,0x0E,0x11,0x12,0x11,
+						 0x14,0x07,0x12,0x13,0x18,0x00,0x17,0x1C,
+						 0x30,0x36,0x3F,0x24,0x40,0x09,0x0C,0x0F,
+						 0x18,0x0E,0x11,0x14,0x11,0x12,0x07,0x12,
+						 0x14,0x18};
+	ret = hx8379c_transmit(dev, HX8379C_SETGAMMA, gamma_config, sizeof(gamma_config));
 	if (ret < 0) {
 		LOG_ERR("Panel gamma configuration failed");
 		return ret;
 	}
 
-	/* Additional B6 register */
-	uint8_t InitParam44[3] = {0x2C,0x2C,0x00};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xB6, InitParam44, sizeof(InitParam44));
+	static const uint8_t vcom_config[3] = {0x2C,0x2C,0x00};
+	ret = hx8379c_transmit(dev, HX8379C_SETVCOM, vcom_config, sizeof(vcom_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xB6 failed");
+		LOG_ERR("Panel register SETVCOM failed");
 		return ret;
 	}
 
-	/* BD register setup */
-	uint8_t InitParamBD[1] = {0x00};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xBD, InitParamBD, sizeof(InitParamBD));
+	static const uint8_t bank0_config[1] = {0x00};
+	ret = hx8379c_transmit(dev, HX8379C_SETBANK, bank0_config, sizeof(bank0_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xBD(0) failed");
+		LOG_ERR("Panel register HX8379C_SETBANK(0) failed");
 		return ret;
 	}
 
-	/* Color LUT configuration 1 */
-	uint8_t InitParam14[43] = {0x01,0x00,0x07,0x0F,0x16,0x1F,0x27,0x30,0x38,0x40,0x47,0x4E,0x56,0x5D,0x65,0x6D,0x74,0x7D,0x84,0x8A,0x90,0x99,0xA1,0xA9,0xB0,0xB6,0xBD,0xC4,0xCD,0xD4,0xDD,0xE5,0xEC,0xF3,0x36,0x07,0x1C,0xC0,0x1B,0x01,0xF1,0x34,0x00};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xC1, InitParam14, sizeof(InitParam14));
+	static const uint8_t lut1_config[43] = {0x01,0x00,0x07,0x0F,0x16,0x1F,0x27,0x30,
+						0x38,0x40,0x47,0x4E,0x56,0x5D,0x65,0x6D,
+						0x74,0x7D,0x84,0x8A,0x90,0x99,0xA1,0xA9,
+						0xB0,0xB6,0xBD,0xC4,0xCD,0xD4,0xDD,0xE5,
+						0xEC,0xF3,0x36,0x07,0x1C,0xC0,0x1B,0x01,
+						0xF1,0x34,0x00};
+	ret = hx8379c_transmit(dev, HX8379C_SETDGC_LUT, lut1_config, sizeof(lut1_config));
 	if (ret < 0) {
 		LOG_ERR("Panel color LUT 1 failed");
 		return ret;
 	}
 
-	uint8_t InitParamBD1[1] = {0x01};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xBD, InitParamBD1, sizeof(InitParamBD1));
+	static const uint8_t bank1_config[1] = {0x01};
+	ret = hx8379c_transmit(dev, HX8379C_SETBANK, bank1_config, sizeof(bank1_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xBD(1) failed");
+		LOG_ERR("Panel register HX8379C_SETBANK(1) failed");
 		return ret;
 	}
 
-	/* Color LUT configuration 2 */
-	uint8_t InitParam15[42] = {0x00,0x08,0x0F,0x16,0x1F,0x28,0x31,0x39,0x41,0x48,0x51,0x59,0x60,0x68,0x70,0x78,0x7F,0x87,0x8D,0x94,0x9C,0xA3,0xAB,0xB3,0xB9,0xC1,0xC8,0xD0,0xD8,0xE0,0xE8,0xEE,0xF5,0x3B,0x1A,0xB6,0xA0,0x07,0x45,0xC5,0x37,0x00};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xC1, InitParam15, sizeof(InitParam15));
+	static const uint8_t lut2_config[42] = {0x00,0x08,0x0F,0x16,0x1F,0x28,0x31,0x39,
+						0x41,0x48,0x51,0x59,0x60,0x68,0x70,0x78,
+						0x7F,0x87,0x8D,0x94,0x9C,0xA3,0xAB,0xB3,
+						0xB9,0xC1,0xC8,0xD0,0xD8,0xE0,0xE8,0xEE,
+						0xF5,0x3B,0x1A,0xB6,0xA0,0x07,0x45,0xC5,
+						0x37,0x00};
+	ret = hx8379c_transmit(dev, HX8379C_SETDGC_LUT, lut2_config, sizeof(lut2_config));
 	if (ret < 0) {
 		LOG_ERR("Panel color LUT 2 failed");
 		return ret;
 	}
 
-	uint8_t InitParamBD2[1] = {0x02};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xBD, InitParamBD2, sizeof(InitParamBD2));
+	static const uint8_t bank2_config[1] = {0x02};
+	ret = hx8379c_transmit(dev, HX8379C_SETBANK, bank2_config, sizeof(bank2_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xBD(2) failed");
+		LOG_ERR("Panel register HX8379C_SETBANK(2) failed");
 		return ret;
 	}
 
-	/* Color LUT configuration 3 */
-	uint8_t InitParam20[42] = {0x00,0x09,0x0F,0x18,0x21,0x2A,0x34,0x3C,0x45,0x4C,0x56,0x5E,0x66,0x6E,0x76,0x7E,0x87,0x8E,0x95,0x9D,0xA6,0xAF,0xB7,0xBD,0xC5,0xCE,0xD5,0xDF,0xE7,0xEE,0xF4,0xFA,0xFF,0x0C,0x31,0x83,0x3C,0x5B,0x56,0x1E,0x5A,0xFF};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xC1, InitParam20, sizeof(InitParam20));
+	static const uint8_t lut3_config[42] = {0x00,0x09,0x0F,0x18,0x21,0x2A,0x34,0x3C,
+						0x45,0x4C,0x56,0x5E,0x66,0x6E,0x76,0x7E,
+						0x87,0x8E,0x95,0x9D,0xA6,0xAF,0xB7,0xBD,
+						0xC5,0xCE,0xD5,0xDF,0xE7,0xEE,0xF4,0xFA,
+						0xFF,0x0C,0x31,0x83,0x3C,0x5B,0x56,0x1E,
+						0x5A,0xFF};
+	ret = hx8379c_transmit(dev, HX8379C_SETDGC_LUT, lut3_config, sizeof(lut3_config));
 	if (ret < 0) {
 		LOG_ERR("Panel color LUT 3 failed");
 		return ret;
 	}
 
-	uint8_t InitParamBD0[1] = {0x00};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0xBD, InitParamBD0, sizeof(InitParamBD0));
+	static const uint8_t bank00_config[1] = {0x00};
+	ret = hx8379c_transmit(dev, HX8379C_SETBANK, bank00_config, sizeof(bank00_config));
 	if (ret < 0) {
-		LOG_ERR("Panel register 0xBD(0) failed");
+		LOG_ERR("Panel register HX8379C_SETBANK(0) failed");
 		return ret;
 	}
 
 	/* Exit Sleep Mode */
-	uint8_t InitParam11[1] = {0x00};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0x11, InitParam11, sizeof(InitParam11));
+	ret = hx8379c_transmit(dev, MIPI_DCS_EXIT_SLEEP_MODE, NULL, 0);
 	if (ret < 0) {
-		LOG_ERR("Exit sleep mode failed");
+		LOG_ERR("Exit sleep mode failed (%d)", ret);
 		return ret;
 	}
 
 	k_msleep(120);
 
 	/* Display On */
-	uint8_t InitParam29[1] = {0x00};
-	ret = mipi_dsi_dcs_write(config->mipi_dsi, config->channel, 0x29, InitParam29, sizeof(InitParam29));
+	ret = hx8379c_blanking_off(dev);
 	if (ret < 0) {
-		LOG_ERR("Display on failed");
+		LOG_ERR("Display blanking off failed (%d)", ret);
 		return ret;
 	}
 
 	k_msleep(120);
 
-	LOG_INF("DSI panel configured successfully");
+	LOG_DBG("DSI panel configured successfully");
 	return 0;
 }
 
@@ -246,30 +336,20 @@ static int hx8379c_init(const struct device *dev)
 	struct mipi_dsi_device mdev;
 	int ret;
 
-	LOG_INF("HX8379C config:");
-	LOG_INF("\tMIPI DSI device: %p", config->mipi_dsi);
-	LOG_INF("\tReset GPIO pin: %d", config->reset_gpio.pin);
-	LOG_INF("\tBacklight GPIO pin: %d", config->backlight.pin);
-	LOG_INF("\tNumber of lanes: %u", config->num_of_lanes);
-	LOG_INF("\tPixel format: 0x%02X", config->pixel_format);
-	LOG_INF("\tPanel width: %u", config->panel_width);
-	LOG_INF("\tPanel height: %u", config->panel_height);
-	LOG_INF("\tChannel: %u", config->channel);
-
 	if (config->reset_gpio.port) {
 		if (!gpio_is_ready_dt(&config->reset_gpio)) {
-			LOG_ERR("Reset GPIO device is not ready!");
+			LOG_ERR("Reset GPIO device is not ready");
 			return -ENODEV;
 		}
 		ret = gpio_pin_configure_dt(&config->reset_gpio, GPIO_OUTPUT_INACTIVE);
 		if (ret < 0) {
-			LOG_ERR("Reset display failed! (%d)", ret);
+			LOG_ERR("Failed to configure reset GPIO (%d)", ret);
 			return ret;
 		}
 		k_msleep(11);
 		ret = gpio_pin_set_dt(&config->reset_gpio, 1);
 		if (ret < 0) {
-			LOG_ERR("Enable display failed! (%d)", ret);
+			LOG_ERR("Failed to activate reset GPIO (%d)", ret);
 			return ret;
 		}
 		k_msleep(150);
@@ -277,73 +357,64 @@ static int hx8379c_init(const struct device *dev)
 
 	if (config->backlight.port) {
 		if (!gpio_is_ready_dt(&config->backlight)) {
-			LOG_ERR("Backlight GPIO device is not ready!");
+			LOG_ERR("Backlight GPIO device is not ready");
 			return -ENODEV;
 		}
 		ret = gpio_pin_configure_dt(&config->backlight, GPIO_OUTPUT_ACTIVE);
 		if (ret < 0) {
-			LOG_ERR("Backlight GPIO configuration failed! (%d)", ret);
+			LOG_ERR("Failed to configure backlight GPIO (%d)", ret);
 			return ret;
 		}
 	}
 
 	/* attach to MIPI-DSI host */
-	mdev.data_lanes = config->num_of_lanes;
+	mdev.data_lanes = config->data_lanes;
 	mdev.pixfmt = config->pixel_format;
-	mdev.mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST;
-	// mdev.mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_MODE_LPM;
+	mdev.mode_flags = MIPI_DSI_MODE_VIDEO | MIPI_DSI_MODE_VIDEO_BURST | MIPI_DSI_MODE_LPM;
 
-	#warning "Pixel clock changed from 62500 to 20833"
 	mdev.timings.hactive = config->panel_width;
-	mdev.timings.hsync = config->hsync; //2; //6; //24;
-	mdev.timings.hbp = config->hbp; //1; //3; //12;
-	mdev.timings.hfp = config->hfp; //1; //1323; //5292
+	mdev.timings.hsync = config->hsync;
+	mdev.timings.hbp = config->hbp;
+	mdev.timings.hfp = config->hfp;
 	mdev.timings.vactive = config->panel_height;
-	mdev.timings.vfp = config->vfp; //50;
-	mdev.timings.vbp = config->vbp; //12;
-	mdev.timings.vsync = config->vsync; //1;
+	mdev.timings.vfp = config->vfp;
+	mdev.timings.vbp = config->vbp;
+	mdev.timings.vsync = config->vsync;
 
 	ret = mipi_dsi_attach(config->mipi_dsi, config->channel, &mdev);
 	if (ret < 0) {
-		LOG_ERR("MIPI-DSI attach failed! (%d)", ret);
+		LOG_ERR("Failed to attach to MIPI-DSI host (%d)", ret);
 		return ret;
 	}
 
 	ret = hx8379c_configure(dev);
-	if (ret) {
-		LOG_ERR("DSI init sequence failed! (%d)", ret);
+	if (ret < 0) {
+		LOG_ERR("Failed to configure display (%d)", ret);
 		return ret;
 	}
 
-	// ret = hx8379c_blanking_off(dev);
-	// if (ret) {
-	// 	LOG_ERR("Display blanking off failed! (%d)", ret);
-	// 	return ret;
-	// }
-
-	return ret;
+	LOG_DBG("HX8379C display initialized successfully");
+	return 0;
 }
 
-#define HX8379C_PANEL_DEVICE(id)							\
-	static const struct hx8379c_config hx8379c_config_##id = {			\
-		.mipi_dsi = DEVICE_DT_GET(DT_INST_BUS(id)),				\
-		.reset_gpio = GPIO_DT_SPEC_INST_GET_OR(id, reset_gpios, {0}),		\
-		.backlight = GPIO_DT_SPEC_INST_GET_OR(id, bl_gpios, {0}),		\
-		.num_of_lanes = DT_INST_PROP_BY_IDX(id, data_lanes, 0),			\
-		.pixel_format = DT_INST_PROP(id, pixel_format),				\
-		.panel_width = DT_INST_PROP(id, width),					\
-		.panel_height = DT_INST_PROP(id, height),				\
-		.channel = DT_INST_REG_ADDR(id),					\
-		.rotation = DT_INST_PROP(id, rotation),					\
-		.hsync = DT_PROP(DT_INST_CHILD(id, display_timings), hsync_len),	\
-		.hbp = DT_PROP(DT_INST_CHILD(id, display_timings), hback_porch),	\
-		.hfp = DT_PROP(DT_INST_CHILD(id, display_timings), hfront_porch),	\
-		.vsync = DT_PROP(DT_INST_CHILD(id, display_timings), vsync_len),	\
-		.vbp = DT_PROP(DT_INST_CHILD(id, display_timings), vback_porch),	\
-		.vfp = DT_PROP(DT_INST_CHILD(id, display_timings), vfront_porch),	\
+#define HX8379C_PANEL_DEVICE(inst)							\
+	static const struct hx8379c_config hx8379c_config_##inst = {			\
+		.mipi_dsi = DEVICE_DT_GET(DT_INST_BUS(inst)),				\
+		.reset_gpio = GPIO_DT_SPEC_INST_GET_OR(inst, reset_gpios, {0}),		\
+		.backlight = GPIO_DT_SPEC_INST_GET_OR(inst, bl_gpios, {0}),		\
+		.data_lanes = DT_INST_PROP_BY_IDX(inst, data_lanes, 0),			\
+		.panel_width = DT_INST_PROP(inst, width),				\
+		.panel_height = DT_INST_PROP(inst, height),				\
+		.channel = DT_INST_REG_ADDR(inst),					\
+		.hsync = DT_PROP(DT_INST_CHILD(inst, display_timings), hsync_len),	\
+		.hbp = DT_PROP(DT_INST_CHILD(inst, display_timings), hback_porch),	\
+		.hfp = DT_PROP(DT_INST_CHILD(inst, display_timings), hfront_porch),	\
+		.vsync = DT_PROP(DT_INST_CHILD(inst, display_timings), vsync_len),	\
+		.vbp = DT_PROP(DT_INST_CHILD(inst, display_timings), vback_porch),	\
+		.vfp = DT_PROP(DT_INST_CHILD(inst, display_timings), vfront_porch),	\
 	};										\
-	DEVICE_DT_INST_DEFINE(id, &hx8379c_init, NULL,					\
-			    NULL, &hx8379c_config_##id, POST_KERNEL,			\
+	DEVICE_DT_INST_DEFINE(inst, &hx8379c_init, NULL,				\
+			    NULL, &hx8379c_config_##inst, POST_KERNEL,			\
 			    CONFIG_DISPLAY_HX8379C_INIT_PRIORITY, &hx8379c_api);
 
 DT_INST_FOREACH_STATUS_OKAY(HX8379C_PANEL_DEVICE)

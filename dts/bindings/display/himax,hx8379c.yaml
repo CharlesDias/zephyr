@@ -26,14 +26,3 @@ properties:
     description: |
       The BLn pin is asserted to control the backlight of the panel.
       The sensor receives this as an active-high signal.
-
-  rotation:
-    type: int
-    default: 0
-    enum:
-      - 0
-      - 90
-      - 180
-      - 270
-    description: |
-      Display rotation (CW) in degrees. Defaults to 0, display default.
