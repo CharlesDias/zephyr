@@ -347,7 +347,7 @@ static int stm32_ltdc_init(const struct device *dev)
 #if defined(CONFIG_SOC_SERIES_STM32N6X)
 	RIMC_MasterConfig_t rimc = {0};
 #endif
-	LOG_INF("Initializing STM32 LTDC Display Driver");
+	LOG_DBG("Initializing STM32 LTDC Display Driver");
 
 	/* Configure and set display on/off GPIO */
 	if (config->disp_on_gpio.port) {
@@ -488,42 +488,42 @@ static int stm32_ltdc_init(const struct device *dev)
 	/* Set the line interrupt position */
 	LTDC->LIPCR = 0U;
 
-	LOG_INF("STM32 LTDC Display Driver initialized");
+	LOG_DBG("STM32 LTDC Display Driver initialized");
 	// Get the LTDC clock source
 	uint32_t frequency = HAL_RCCEx_GetPeriphCLKFreq(RCC_PERIPHCLK_LTDC);
-	LOG_INF("LTDC clock frequency: %u kHz", frequency / 1000);
+	LOG_DBG("LTDC clock frequency: %u kHz", frequency / 1000);
 
 	/* Log LTDC initialization parameters */
-	LOG_INF("LTDC Init Parameters:");
-	LOG_INF("  Instance: 0x%08X", (uint32_t)data->hltdc.Instance);
-	LOG_INF("  HSPolarity: 0x%08X", data->hltdc.Init.HSPolarity);
-	LOG_INF("  VSPolarity: 0x%08X", data->hltdc.Init.VSPolarity);
-	LOG_INF("  DEPolarity: 0x%08X", data->hltdc.Init.DEPolarity);
-	LOG_INF("  PCPolarity: 0x%08X", data->hltdc.Init.PCPolarity);
-	LOG_INF("  HorizontalSync: %d", data->hltdc.Init.HorizontalSync);
-	LOG_INF("  VerticalSync: %d", data->hltdc.Init.VerticalSync);
-	LOG_INF("  AccumulatedHBP: %d", data->hltdc.Init.AccumulatedHBP);
-	LOG_INF("  AccumulatedVBP: %d", data->hltdc.Init.AccumulatedVBP);
-	LOG_INF("  AccumulatedActiveW: %d", data->hltdc.Init.AccumulatedActiveW);
-	LOG_INF("  AccumulatedActiveH: %d", data->hltdc.Init.AccumulatedActiveH);
-	LOG_INF("  TotalWidth: %d", data->hltdc.Init.TotalWidth);
-	LOG_INF("  TotalHeight: %d", data->hltdc.Init.TotalHeigh);
-	LOG_INF("  Backcolor RGB: (%d, %d, %d)", data->hltdc.Init.Backcolor.Red,
+	LOG_DBG("LTDC Init Parameters:");
+	LOG_DBG("  Instance: 0x%08X", (uint32_t)data->hltdc.Instance);
+	LOG_DBG("  HSPolarity: 0x%08X", data->hltdc.Init.HSPolarity);
+	LOG_DBG("  VSPolarity: 0x%08X", data->hltdc.Init.VSPolarity);
+	LOG_DBG("  DEPolarity: 0x%08X", data->hltdc.Init.DEPolarity);
+	LOG_DBG("  PCPolarity: 0x%08X", data->hltdc.Init.PCPolarity);
+	LOG_DBG("  HorizontalSync: %d", data->hltdc.Init.HorizontalSync);
+	LOG_DBG("  VerticalSync: %d", data->hltdc.Init.VerticalSync);
+	LOG_DBG("  AccumulatedHBP: %d", data->hltdc.Init.AccumulatedHBP);
+	LOG_DBG("  AccumulatedVBP: %d", data->hltdc.Init.AccumulatedVBP);
+	LOG_DBG("  AccumulatedActiveW: %d", data->hltdc.Init.AccumulatedActiveW);
+	LOG_DBG("  AccumulatedActiveH: %d", data->hltdc.Init.AccumulatedActiveH);
+	LOG_DBG("  TotalWidth: %d", data->hltdc.Init.TotalWidth);
+	LOG_DBG("  TotalHeight: %d", data->hltdc.Init.TotalHeigh);
+	LOG_DBG("  Backcolor RGB: (%d, %d, %d)", data->hltdc.Init.Backcolor.Red,
 		data->hltdc.Init.Backcolor.Green, data->hltdc.Init.Backcolor.Blue);
 
 	/* Log Layer configuration parameters */
-	LOG_INF("LTDC Layer 0 Configuration:");
-	LOG_INF("  Window X0: %d, X1: %d", data->hltdc.LayerCfg[0].WindowX0, data->hltdc.LayerCfg[0].WindowX1);
-	LOG_INF("  Window Y0: %d, Y1: %d", data->hltdc.LayerCfg[0].WindowY0, data->hltdc.LayerCfg[0].WindowY1);
-	LOG_INF("  PixelFormat: 0x%08X", data->hltdc.LayerCfg[0].PixelFormat);
-	LOG_INF("  Alpha: %d", data->hltdc.LayerCfg[0].Alpha);
-	LOG_INF("  Alpha0: %d", data->hltdc.LayerCfg[0].Alpha0);
-	LOG_INF("  BlendingFactor1: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor1);
-	LOG_INF("  BlendingFactor2: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor2);
-	LOG_INF("  FBStartAddress: 0x%08X", data->hltdc.LayerCfg[0].FBStartAdress);
-	LOG_INF("  ImageWidth: %d", data->hltdc.LayerCfg[0].ImageWidth);
-	LOG_INF("  ImageHeight: %d", data->hltdc.LayerCfg[0].ImageHeight);
-	LOG_INF("  Layer Backcolor RGB: (%d, %d, %d)", data->hltdc.LayerCfg[0].Backcolor.Red,
+	LOG_DBG("LTDC Layer 0 Configuration:");
+	LOG_DBG("  Window X0: %d, X1: %d", data->hltdc.LayerCfg[0].WindowX0, data->hltdc.LayerCfg[0].WindowX1);
+	LOG_DBG("  Window Y0: %d, Y1: %d", data->hltdc.LayerCfg[0].WindowY0, data->hltdc.LayerCfg[0].WindowY1);
+	LOG_DBG("  PixelFormat: 0x%08X", data->hltdc.LayerCfg[0].PixelFormat);
+	LOG_DBG("  Alpha: %d", data->hltdc.LayerCfg[0].Alpha);
+	LOG_DBG("  Alpha0: %d", data->hltdc.LayerCfg[0].Alpha0);
+	LOG_DBG("  BlendingFactor1: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor1);
+	LOG_DBG("  BlendingFactor2: 0x%08X", data->hltdc.LayerCfg[0].BlendingFactor2);
+	LOG_DBG("  FBStartAddress: 0x%08X", data->hltdc.LayerCfg[0].FBStartAdress);
+	LOG_DBG("  ImageWidth: %d", data->hltdc.LayerCfg[0].ImageWidth);
+	LOG_DBG("  ImageHeight: %d", data->hltdc.LayerCfg[0].ImageHeight);
+	LOG_DBG("  Layer Backcolor RGB: (%d, %d, %d)", data->hltdc.LayerCfg[0].Backcolor.Red,
 		data->hltdc.LayerCfg[0].Backcolor.Green, data->hltdc.LayerCfg[0].Backcolor.Blue);
 	return 0;
 }
