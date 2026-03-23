@@ -1,0 +1,24 @@
+# Copyright (c) 2026 Charles Dias
+# SPDX-License-Identifier: Apache-2.0
+
+config VIDEO_MAX96717
+	bool "ADI MAX96717 GMSL2 serializer"
+	select I2C
+	depends on DT_HAS_ADI_MAX96717_ENABLED
+	default y
+	help
+	  Enable driver for the ADI MAX96717 GMSL2 serializer.
+	  The MAX96717 receives MIPI CSI-2 data from a camera sensor
+	  and transmits it over a coaxial GMSL2 link.
+
+if VIDEO_MAX96717
+
+config VIDEO_MAX96717_INIT_PRIORITY
+	int "MAX96717 init priority"
+	default 59
+	help
+	  Initialization priority for the MAX96717 serializer. This should be
+	  higher than the deserializer's and lower than camera sensor priority
+	  to ensure proper initialization order.
+
+endif
