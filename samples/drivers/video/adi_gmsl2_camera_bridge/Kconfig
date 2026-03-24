@@ -1,0 +1,10 @@
+# Copyright (c) 2026 Charles Dias
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "GMSL2 Camera Bridge Sample"
+
+source "Kconfig.zephyr"
+
+module = APP
+module-str = Application
+source "subsys/logging/Kconfig.template.log_config"
