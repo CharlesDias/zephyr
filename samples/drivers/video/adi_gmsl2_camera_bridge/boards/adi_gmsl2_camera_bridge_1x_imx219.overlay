@@ -1,0 +1,33 @@
+/*
+ * Copyright (c) 2026 Charles Dias
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Wires a single IMX219 camera sensor through the ADI GMSL2 bridge.
+ *
+ * Overlay merge order:
+ *   1. raspberry_pi_camera_module_2 → creates IMX219, wires imx219_ep_out → csi_ep_in
+ *   2. adi_gmsl2_camera_bridge      → creates MAX96724 + MAX96717, overrides csi_ep_in
+ *   3. This overlay                 → rewires imx219_ep_out → max96717_csi_in
+ *
+ */
+
+#include <zephyr/dt-bindings/video/video-interfaces.h>
+
+&imx219_ep_out {
+	remote-endpoint-label = "max96717_csi_in";
+};
+
+&max96717 {
+	ports {
+		port@0 {
+			reg = <0>;
+
+			max96717_csi_in: endpoint {
+				remote-endpoint-label = "imx219_ep_out";
+				bus-type = <VIDEO_BUS_TYPE_CSI2_DPHY>;
+				data-lanes = <1 2>;
+			};
+		};
+	};
+};
