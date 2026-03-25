@@ -1751,7 +1751,7 @@ static int stm32_dcmipp_init(const struct device *dev)
 	stm32_dcmipp_get_isp_decimation(dcmipp);
 #endif
 
-	LOG_DBG("%s initialized", dev->name);
+	LOG_INF("%s initialized", dev->name);
 
 	return 0;
 }

@@ -566,7 +566,12 @@ static int imx219_init(const struct device *dev)
 		return ret;
 	}
 
-	return imx219_init_ctrls(dev);
+	ret = imx219_init_ctrls(dev);
+
+	LOG_INF("IMX219 initialized on I2C bus %s, address 0x%02x", cfg->i2c.bus->name,
+		cfg->i2c.addr);
+
+	return ret;
 }
 
 #define IMX219_INIT(n)                                                                             \
