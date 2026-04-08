@@ -298,6 +298,16 @@ static const struct stm32_dcmipp_input_fmt {
 	INPUT_FMT(SGRBG14P, RAW14, 14, RAW14), INPUT_FMT(SRGGB14P, RAW14, 14, RAW14),
 	INPUT_FMT(RGB565, RGB565, 8, RGB565),
 	INPUT_FMT(YUYV, YUV422, 8, YUV422_8),
+	/*
+	 * RGB888 (24bpp) does not fit the common BPP classifier, which caps
+	 * at BPP16. The BPP field below is a placeholder used only by the VC
+	 * common-config path; for RGB24/BGR24 the per-pipe FDTF override
+	 * programmed in stm32_dcmipp_conf_csi() takes precedence on Pipe1.
+	 * Both fourCCs map to the same CSI-2 data type (0x24 RGB888); the
+	 * output side selects the pixel-packer SWAPRB bit per fourCC.
+	 */
+	INPUT_FMT(RGB24, RGB888, 8, RGB888),
+	INPUT_FMT(BGR24, RGB888, 8, RGB888),
 };
 
 static const struct stm32_dcmipp_input_fmt *stm32_dcmipp_get_input_info(uint32_t pixelformat)
@@ -443,6 +453,30 @@ static int stm32_dcmipp_conf_csi(const struct device *dev, uint32_t dcmipp_csi_b
 	if (hal_ret != HAL_OK) {
 		LOG_ERR("Failed to set CSI configuration");
 		return -EIO;
+	}
+
+	/*
+	 * RGB888 (CSI-2 data type 0x24) is wider than the common BPP
+	 * classifier supports (HAL caps at BPP16). Use the per-pipe Force
+	 * Data Type Format override on Pipe1 so the data type is taken from
+	 * P1FSCR.FDTF instead of being inferred from BPP.
+	 *
+	 * TODO: the FDTF override is per-pipe, but the VC classifier set
+	 * above is VC-wide. If Pipe0 (dump) or Pipe2 (ancillary) are ever
+	 * enabled concurrently on the same VC while running RGB888, they
+	 * will still consult the classifier and mis-frame the stream. Pipe2
+	 * would need its own HAL_DCMIPP_PIPE_CSI_ForceDataTypeFormat() call;
+	 * Pipe0 has no FDTF and cannot carry RGB888 in this configuration.
+	 */
+	if (dcmipp->source_fmt.pixelformat == VIDEO_PIX_FMT_RGB24 ||
+	    dcmipp->source_fmt.pixelformat == VIDEO_PIX_FMT_BGR24) {
+		hal_ret = HAL_DCMIPP_PIPE_CSI_ForceDataTypeFormat(&dcmipp->hdcmipp,
+								  DCMIPP_PIPE1,
+								  DCMIPP_DT_RGB888);
+		if (hal_ret != HAL_OK) {
+			LOG_ERR("Failed to force RGB888 data type on Pipe1");
+			return -EIO;
+		}
 	}
 
 	return 0;
