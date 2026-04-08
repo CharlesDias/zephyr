@@ -3,6 +3,14 @@
 
 mainmenu "GMSL2 Camera Bridge Sample"
 
+config APP_TPG_MODE
+	bool "MAX96724 internal Video Pattern Generator validation mode"
+	help
+	  Build the sample as a minimal capture-to-display loop sourced from
+	  the MAX96724 internal Video Pattern Generator (VPG / "TPG"),
+	  bypassing the GMSL link, serializer and camera sensor. Used to
+	  validate the host-side CSI-2 + DCMIPP + display path in isolation.
+
 source "Kconfig.zephyr"
 
 module = APP

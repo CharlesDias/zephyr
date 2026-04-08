@@ -4,7 +4,5 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(adi_gmsl2_camera_bridge)
 
-target_sources(app PRIVATE
-  src/main.c
-  src/gmsl_diag.c
-)
+target_sources(app PRIVATE src/main.c)
+target_sources_ifndef(CONFIG_APP_TPG_MODE app PRIVATE src/gmsl_diag.c)

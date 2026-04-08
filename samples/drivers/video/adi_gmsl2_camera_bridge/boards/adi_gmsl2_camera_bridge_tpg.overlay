@@ -1,0 +1,38 @@
+/*
+ * Copyright (c) 2026 Charles Dias
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * MAX96724 Video Pattern Generator (VPG / TPG) validation overlay.
+ *
+ * This overlay configures the sample to drive the host capture pipeline
+ * (DCMIPP -> LTDC display) from the MAX96724's internal pattern generator,
+ * with no GMSL link, no serializer, and no camera sensor in the loop.
+ *
+ * Use it together with the adi_gmsl2_camera_bridge shield (and *without*
+ * any sensor shield):
+ *
+ *   west build -p -b stm32n6570_dk//fsbl \
+ *     --shield adi_gmsl2_camera_bridge \
+ *     samples/drivers/video/adi_gmsl2_camera_bridge \
+ *     -- -DDTC_OVERLAY_FILE="boards/adi_gmsl2_camera_bridge_tpg.overlay" \
+ *        -DEXTRA_CONF_FILE="boards/stm32n6570_dk_stm32n657xx_fsbl_tpg.conf"
+ */
+
+/ {
+	chosen {
+		zephyr,camera = &csi_capture_port;
+	};
+};
+
+/* Enable the host DCMIPP/CSI capture interface — normally turned on by a
+ * sensor shield, but in TPG mode the MAX96724 alone feeds the host link.
+ */
+&csi_interface {
+	status = "okay";
+};
+
+/* No serializer present in TPG mode — disable to avoid probe errors. */
+&max96717 {
+	status = "disabled";
+};

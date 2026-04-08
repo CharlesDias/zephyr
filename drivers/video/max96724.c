@@ -121,6 +121,34 @@ LOG_MODULE_REGISTER(video_max96724, CONFIG_VIDEO_LOG_LEVEL);
 
 #define MAX96724_REG_GRAD_INCR             MAX96724_REG8(0x106D)
 
+/* Checkerboard-mode colour/repeat registers (Table 26, pp. 57-58) */
+#define MAX96724_REG_CHKR_COLOR_A_L        MAX96724_REG8(0x106E) /* R */
+#define MAX96724_REG_CHKR_COLOR_A_M        MAX96724_REG8(0x106F) /* G */
+#define MAX96724_REG_CHKR_COLOR_A_H        MAX96724_REG8(0x1070) /* B */
+#define MAX96724_REG_CHKR_COLOR_B_L        MAX96724_REG8(0x1071) /* R */
+#define MAX96724_REG_CHKR_COLOR_B_M        MAX96724_REG8(0x1072) /* G */
+#define MAX96724_REG_CHKR_COLOR_B_H        MAX96724_REG8(0x1073) /* B */
+#define MAX96724_REG_CHKR_RPT_A            MAX96724_REG8(0x1074)
+#define MAX96724_REG_CHKR_RPT_B            MAX96724_REG8(0x1075)
+#define MAX96724_REG_CHKR_ALT              MAX96724_REG8(0x1076)
+
+/*
+ * Checkerboard tile geometry. With 800x480 active area:
+ *  - RPT_A=RPT_B=80  → 10 horizontal tiles per line (800 / 80)
+ *  - ALT=48          → 10 vertical tile bands (480 / 48)
+ * Colour A is blue, colour B is red — matches Figure 22 in the
+ * MAX96724 user guide (p. 57).
+ */
+#define MAX96724_TPG_CHKR_RPT_A    80U
+#define MAX96724_TPG_CHKR_RPT_B    80U
+#define MAX96724_TPG_CHKR_ALT      48U
+#define MAX96724_TPG_CHKR_A_R      0x00U
+#define MAX96724_TPG_CHKR_A_G      0x00U
+#define MAX96724_TPG_CHKR_A_B      0xFFU
+#define MAX96724_TPG_CHKR_B_R      0xFFU
+#define MAX96724_TPG_CHKR_B_G      0x00U
+#define MAX96724_TPG_CHKR_B_B      0x00U
+
 #define MAX96724_LINK_LOCK_RETRIES  50
 #define MAX96724_LINK_LOCK_DELAY_MS 20
 
@@ -332,15 +360,35 @@ static int max96724_write_pattern_timings(const struct i2c_dt_spec *i2c)
 		 MAX96724_PATGEN_0_GEN_DE |
 		 MAX96724_PATGEN_0_GEN_HS |
 		 MAX96724_PATGEN_0_GEN_VS},
+	};
 
-		/*
-		 * Gradient increment per PCLK. Linux upstream uses 4 (matches the
-		 * 1920x1080 modes it targets). On our narrower 800-pixel line that
-		 * only fits ~1.5 phases of the B→G→R→K→W cycle, so we step it up
-		 * to 16 to land at least two full cycles across hactive — gives a
-		 * denser bar pattern that's easier to eyeball for tearing/jitter.
-		 */
-		{MAX96724_REG_GRAD_INCR, 16},
+	return video_write_cci_multiregs(i2c, regs, ARRAY_SIZE(regs));
+}
+
+static int max96724_write_gradient_pattern(const struct i2c_dt_spec *i2c)
+{
+	/*
+	 * Gradient increment per PCLK. Linux upstream uses 4 (matches the
+	 * 1920x1080 modes it targets). On our narrower 800-pixel line that
+	 * only fits ~1.5 phases of the B->G->R->K->W cycle, so we step it up
+	 * to 16 to land at least two full cycles across hactive: gives a
+	 * denser bar pattern that's easier to eyeball for tearing/jitter.
+	 */
+	return video_write_cci_reg(i2c, MAX96724_REG_GRAD_INCR, 16);
+}
+
+static int max96724_write_checkerboard_pattern(const struct i2c_dt_spec *i2c)
+{
+	const struct video_reg regs[] = {
+		{MAX96724_REG_CHKR_COLOR_A_L, MAX96724_TPG_CHKR_A_R},
+		{MAX96724_REG_CHKR_COLOR_A_M, MAX96724_TPG_CHKR_A_G},
+		{MAX96724_REG_CHKR_COLOR_A_H, MAX96724_TPG_CHKR_A_B},
+		{MAX96724_REG_CHKR_COLOR_B_L, MAX96724_TPG_CHKR_B_R},
+		{MAX96724_REG_CHKR_COLOR_B_M, MAX96724_TPG_CHKR_B_G},
+		{MAX96724_REG_CHKR_COLOR_B_H, MAX96724_TPG_CHKR_B_B},
+		{MAX96724_REG_CHKR_RPT_A,     MAX96724_TPG_CHKR_RPT_A},
+		{MAX96724_REG_CHKR_RPT_B,     MAX96724_TPG_CHKR_RPT_B},
+		{MAX96724_REG_CHKR_ALT,       MAX96724_TPG_CHKR_ALT},
 	};
 
 	return video_write_cci_multiregs(i2c, regs, ARRAY_SIZE(regs));
@@ -375,11 +423,27 @@ static int max96724_vpg_configure(const struct i2c_dt_spec *i2c)
 		return ret;
 	}
 
-	/* Select gradient pattern */
+#if IS_ENABLED(CONFIG_VIDEO_MAX96724_VPG_PATTERN_CHECKERBOARD)
+	ret = max96724_write_checkerboard_pattern(i2c);
+	if (ret < 0) {
+		return ret;
+	}
+
+	return video_modify_cci_reg(i2c, MAX96724_REG_PATGEN_1,
+				    MAX96724_PATGEN_1_MODE_MASK,
+				    FIELD_PREP(MAX96724_PATGEN_1_MODE_MASK,
+					       MAX96724_PATGEN_1_MODE_CHECKER));
+#else
+	ret = max96724_write_gradient_pattern(i2c);
+	if (ret < 0) {
+		return ret;
+	}
+
 	return video_modify_cci_reg(i2c, MAX96724_REG_PATGEN_1,
 				    MAX96724_PATGEN_1_MODE_MASK,
 				    FIELD_PREP(MAX96724_PATGEN_1_MODE_MASK,
 					       MAX96724_PATGEN_1_MODE_GRADIENT));
+#endif
 }
 
 static int max96724_csi2_configure(const struct i2c_dt_spec *i2c)
