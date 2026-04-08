@@ -21,4 +21,12 @@ config VIDEO_MAX96724_INIT_PRIORITY
 	  lower than the serializer's priority to ensure proper initialization
 	  order.
 
+config VIDEO_MAX96724_TPG_TOLERATE_NO_LINK
+	bool "Do not fail probe when no GMSL link is locked"
+	default y
+	help
+	  Allow the driver to finish probing even if no GMSL2 link locks at
+	  init time. Required when running the deserializer's internal Video
+	  Pattern Generator (VPG) with no serializer attached.
+
 endif
