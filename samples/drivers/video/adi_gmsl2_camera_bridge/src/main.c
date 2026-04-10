@@ -6,13 +6,12 @@
 
 #include <zephyr/device.h>
 #include <zephyr/drivers/video.h>
+#include <zephyr/drivers/video-controls.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 
-#if IS_ENABLED(CONFIG_APP_TPG_MODE)
+#if IS_ENABLED(CONFIG_DISPLAY)
 #include <zephyr/drivers/display.h>
-#else
-#include "gmsl_diag.h"
 #endif
 
 LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
@@ -23,19 +22,18 @@ LOG_MODULE_REGISTER(main, CONFIG_APP_LOG_LEVEL);
 
 #define CAMERA_DEV DEVICE_DT_GET(DT_CHOSEN(zephyr_camera))
 
-#if IS_ENABLED(CONFIG_APP_TPG_MODE)
+#define CAPTURE_NUM_BUFS  2
+#define CAPTURE_LOG_EVERY 60
 
-#define TPG_NUM_BUFS  2
-#define TPG_LOG_EVERY 60
+#if IS_ENABLED(CONFIG_DISPLAY)
 
 /*
  * Clear the LCD once at startup. The LTDC framebuffer lives in PSRAM and is
- * not zero-initialised, so the area outside the 640x480 capture region (the
- * rightmost 160 columns on an 800x480 panel) would otherwise show stale
- * content from a previous run.
+ * not zero-initialised, so the area outside the capture region would otherwise
+ * show stale content from a previous run.
  */
-static void tpg_clear_display(const struct device *display_dev,
-			      const struct display_capabilities *caps)
+static void clear_display(const struct device *display_dev,
+			   const struct display_capabilities *caps)
 {
 	static uint8_t black_line[800 * 3];
 	struct display_buffer_descriptor desc = {
@@ -50,7 +48,7 @@ static void tpg_clear_display(const struct device *display_dev,
 	}
 }
 
-static int tpg_setup_display(const struct device *display_dev, uint32_t pixfmt)
+static int setup_display(const struct device *display_dev, uint32_t pixfmt)
 {
 	struct display_capabilities caps;
 	int ret = 0;
@@ -76,7 +74,7 @@ static int tpg_setup_display(const struct device *display_dev, uint32_t pixfmt)
 		}
 	}
 
-	tpg_clear_display(display_dev, &caps);
+	clear_display(display_dev, &caps);
 
 	ret = display_blanking_off(display_dev);
 	if (ret == -ENOSYS) {
@@ -85,8 +83,8 @@ static int tpg_setup_display(const struct device *display_dev, uint32_t pixfmt)
 	return ret;
 }
 
-static void tpg_display_frame(const struct device *display_dev, const struct video_buffer *vbuf,
-			      const struct video_format *fmt)
+static void display_frame(const struct device *display_dev, const struct video_buffer *vbuf,
+			   const struct video_format *fmt)
 {
 	struct display_buffer_descriptor desc = {
 		.buf_size = vbuf->bytesused,
@@ -98,42 +96,36 @@ static void tpg_display_frame(const struct device *display_dev, const struct vid
 	(void)display_write(display_dev, 0, vbuf->line_offset, &desc, vbuf->buffer);
 }
 
-static int tpg_main(void)
+#endif /* CONFIG_DISPLAY */
+
+int main(void)
 {
 	const struct device *camera = CAMERA_DEV;
-	const struct device *display = DEVICE_DT_GET_OR_NULL(DT_CHOSEN(zephyr_display));
-	struct video_caps caps = {.type = VIDEO_BUF_TYPE_OUTPUT};
 	struct video_format fmt = {.type = VIDEO_BUF_TYPE_OUTPUT};
 	struct video_buffer *vbuf;
 	unsigned int frame = 0;
 	uint32_t last_ts = 0;
 	int ret;
 
-	LOG_INF("MAX96724 VPG (TPG) validation start");
+#if IS_ENABLED(CONFIG_DISPLAY)
+	const struct device *display = DEVICE_DT_GET_OR_NULL(DT_CHOSEN(zephyr_display));
+#endif
+
+	if (IS_ENABLED(CONFIG_APP_TPG_MODE)) {
+		LOG_INF("MAX96724 VPG (TPG) validation start");
+	} else {
+		LOG_INF("GMSL2 camera bridge — capture start");
+	}
 
 	if (!device_is_ready(camera)) {
 		LOG_ERR("Camera %s not ready", camera->name);
 		return -ENODEV;
 	}
 
-	ret = video_get_caps(camera, &caps);
-	if (ret < 0) {
-		LOG_ERR("video_get_caps failed (err %d)", ret);
-		return ret;
-	}
-
-	ret = video_get_format(camera, &fmt);
-	if (ret < 0) {
-		LOG_ERR("video_get_format failed (err %d)", ret);
-		return ret;
-	}
-
 	/*
-	 * The DCMIPP pipe has no format until video_set_format() is called, so
-	 * the get above returns pitch=0/size=0. Force the VPG geometry here and
-	 * push it down. Re-read the result so pitch/size reflect what the
-	 * DCMIPP driver actually programmed (it computes pitch internally on
-	 * its private pipe state and does NOT write back to the caller).
+	 * Set up the capture format.
+	 * In TPG mode: hard-code 800x480 BGR24 (the VPG's only output).
+	 * In camera mode: use 800x480 BGR24 to match the LTDC panel.
 	 */
 	fmt.pixelformat = VIDEO_PIX_FMT_BGR24;
 	fmt.width = 800;
@@ -141,9 +133,9 @@ static int tpg_main(void)
 	fmt.pitch = fmt.width * 3U;
 	fmt.size = fmt.pitch * fmt.height;
 
-	ret = video_set_format(camera, &fmt);
+	ret = video_set_compose_format(camera, &fmt);
 	if (ret < 0) {
-		LOG_ERR("video_set_format failed (err %d)", ret);
+		LOG_ERR("video_set_compose_format failed (err %d)", ret);
 		return ret;
 	}
 
@@ -161,8 +153,25 @@ static int tpg_main(void)
 		return -EINVAL;
 	}
 
+	/* Enable test pattern on the sensor if requested via Kconfig */
+	if (CONFIG_APP_TEST_PATTERN > 0) {
+		struct video_control ctrl = {
+			.id = VIDEO_CID_TEST_PATTERN,
+			.val = CONFIG_APP_TEST_PATTERN,
+		};
+
+		ret = video_set_ctrl(camera, &ctrl);
+		if (ret < 0 && ret != -ENOTSUP) {
+			LOG_WRN("Failed to set test pattern %d (err %d)",
+				CONFIG_APP_TEST_PATTERN, ret);
+		} else if (ret == 0) {
+			LOG_INF("Test pattern %d enabled", CONFIG_APP_TEST_PATTERN);
+		}
+	}
+
+#if IS_ENABLED(CONFIG_DISPLAY)
 	if (display != NULL) {
-		ret = tpg_setup_display(display, fmt.pixelformat);
+		ret = setup_display(display, fmt.pixelformat);
 		if (ret < 0) {
 			LOG_WRN("Display setup failed (err %d) — continuing headless", ret);
 			display = NULL;
@@ -170,16 +179,9 @@ static int tpg_main(void)
 	} else {
 		LOG_INF("No zephyr,display chosen — running headless");
 	}
+#endif
 
-	for (int i = 0; i < TPG_NUM_BUFS; i++) {
-		/*
-		 * STM32 DCMIPP HAL requires the destination buffer to be 16-byte
-		 * aligned (HAL_DCMIPP_CSI_PIPE_Start rejects unaligned addresses
-		 * with HAL_ERROR). The plain video_buffer_alloc() only asks for
-		 * sizeof(void *) alignment, so use the explicit aligned variant
-		 * with the alignment from CONFIG_VIDEO_BUFFER_POOL_ALIGN — which
-		 * the STM32 SoC defconfig already pins to 16 when DCMIPP is on.
-		 */
+	for (int i = 0; i < CAPTURE_NUM_BUFS; i++) {
 		vbuf = video_buffer_aligned_alloc(fmt.size, CONFIG_VIDEO_BUFFER_POOL_ALIGN,
 						  K_NO_WAIT);
 		if (vbuf == NULL) {
@@ -214,17 +216,18 @@ static int tpg_main(void)
 			return ret;
 		}
 
-		/* Log only every TPG_LOG_EVERY-th frame so the UART isn't drowned. */
-		if ((frame % TPG_LOG_EVERY) == 0) {
+		if ((frame % CAPTURE_LOG_EVERY) == 0) {
 			LOG_INF("Frame %u: %u bytes, ts=%u ms (delta %u ms)", frame,
 				vbuf->bytesused, vbuf->timestamp, vbuf->timestamp - last_ts);
 		}
 		frame++;
 		last_ts = vbuf->timestamp;
 
+#if IS_ENABLED(CONFIG_DISPLAY)
 		if (display != NULL) {
-			tpg_display_frame(display, vbuf, &fmt);
+			display_frame(display, vbuf, &fmt);
 		}
+#endif
 
 		ret = video_enqueue(camera, vbuf);
 		if (ret < 0) {
@@ -232,54 +235,4 @@ static int tpg_main(void)
 			return ret;
 		}
 	}
-}
-
-#else /* CONFIG_APP_TPG_MODE */
-
-#define I2C_BUS DEVICE_DT_GET(DT_NODELABEL(csi_i2c))
-
-static int diag_main(void)
-{
-	const struct device *camera_dev = CAMERA_DEV;
-	const struct device *i2c_dev = I2C_BUS;
-
-	LOG_INF("GMSL tunnel validation start");
-
-	LOG_INF("Camera device: %s", camera_dev->name);
-
-	if (!device_is_ready(i2c_dev)) {
-		LOG_ERR("I2C bus %s is not ready", i2c_dev->name);
-		return -ENODEV;
-	}
-
-#if DT_NODE_EXISTS(DT_NODELABEL(max96724))
-	if (!device_is_ready(DEVICE_DT_GET(DT_NODELABEL(max96724)))) {
-		LOG_ERR("MAX96724 bridge device is not ready");
-		return -ENODEV;
-	}
-#endif
-
-#if DT_NODE_EXISTS(DT_NODELABEL(max96717))
-	if (!device_is_ready(DEVICE_DT_GET(DT_NODELABEL(max96717)))) {
-		LOG_ERR("MAX96717 bridge device is not ready");
-		return -ENODEV;
-	}
-#endif
-
-	i2c_scan_devices(i2c_dev);
-	verify_device_ids(i2c_dev);
-
-	LOG_INF("GMSL tunnel validation succeeded");
-	return 0;
-}
-
-#endif /* CONFIG_APP_TPG_MODE */
-
-int main(void)
-{
-#if IS_ENABLED(CONFIG_APP_TPG_MODE)
-	return tpg_main();
-#else
-	return diag_main();
-#endif
 }

@@ -66,11 +66,21 @@ LOG_MODULE_REGISTER(video_max96717, CONFIG_VIDEO_LOG_LEVEL);
 #define MAX96717_FRONTTOP_20_SOFT_BPP     GENMASK(4, 0)
 #define MAX96717_FRONTTOP_20_SOFT_BPP_EN  BIT(5)
 
+/* MIPI CSI-2 RX PHY configuration */
+#define MAX96717_REG_MIPI_RX0            MAX96717_REG8(0x0330)
+#define MAX96717_MIPI_RX0_NONCONTCLK_EN  BIT(6)
+
+#define MAX96717_REG_MIPI_RX1            MAX96717_REG8(0x0331)
+#define MAX96717_MIPI_RX1_CTRL_NUM_LANES GENMASK(5, 4)
+
 /* EXT11 — tunnel mode control */
 #define MAX96717_REG_EXT11                MAX96717_REG8(0x0383)
 #define MAX96717_EXT11_TUN_MODE           BIT(7)
 
 #define MIPI_CSI2_DT_RGB888 0x24
+#define MIPI_CSI2_DT_RAW8   0x2A
+#define MIPI_CSI2_DT_RAW10  0x2B
+#define MIPI_CSI2_DT_RAW12  0x2C
 
 /* CMU2 mandatory programming (per datasheet) */
 #define MAX96717_REG_CMU2                 MAX96717_REG8(0x0302)
@@ -191,9 +201,12 @@ static const char *max96717_variant_model(uint8_t id)
 
 struct max96717_config {
 	struct i2c_dt_spec i2c;
+	const struct device *source_dev;
+	uint8_t csi_rx_num_lanes;
 };
 
 struct max96717_data {
+	struct video_format fmt;
 };
 
 static int max96717_check_link_lock(const struct i2c_dt_spec *i2c)
@@ -531,11 +544,250 @@ static int max96717_init(const struct device *dev)
 	return 0;
 }
 
-static DEVICE_API(video, max96717_api) = {};
+static int max96717_get_caps(const struct device *dev, struct video_caps *caps)
+{
+	const struct max96717_config *cfg = dev->config;
+
+	/* Forward to upstream sensor if present */
+	if (cfg->source_dev != NULL) {
+		return video_get_caps(cfg->source_dev, caps);
+	}
+
+	return -ENOTSUP;
+}
+
+static int max96717_get_format(const struct device *dev, struct video_format *fmt)
+{
+	const struct max96717_config *cfg = dev->config;
+
+	/* Forward to upstream sensor if present */
+	if (cfg->source_dev != NULL) {
+		return video_get_format(cfg->source_dev, fmt);
+	}
+
+	return -ENOTSUP;
+}
+
+static int max96717_set_format(const struct device *dev, struct video_format *fmt)
+{
+	const struct max96717_config *cfg = dev->config;
+	struct max96717_data *data = dev->data;
+
+	/* Forward to upstream sensor if present */
+	if (cfg->source_dev != NULL) {
+		int ret;
+
+		ret = video_set_format(cfg->source_dev, fmt);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+
+	data->fmt = *fmt;
+	return 0;
+}
+
+static uint8_t max96717_pixfmt_to_csi2_dt(uint32_t pixfmt)
+{
+	switch (pixfmt) {
+	case VIDEO_PIX_FMT_RGB24:
+	case VIDEO_PIX_FMT_BGR24:
+		return MIPI_CSI2_DT_RGB888;
+	case VIDEO_PIX_FMT_SBGGR8:
+		return MIPI_CSI2_DT_RAW8;
+	case VIDEO_PIX_FMT_SBGGR10P:
+		return MIPI_CSI2_DT_RAW10;
+	default:
+		return 0;
+	}
+}
+
+/*
+ * Configure the MIPI CSI-2 receiver PHY on the serializer.
+ * Sets the lane count from DT and enables non-continuous clock mode
+ * (required by sensors like the IMX219).
+ */
+static int max96717_configure_csi_rx_phy(const struct i2c_dt_spec *i2c,
+					 uint8_t num_lanes)
+{
+	int ret;
+
+	/* Set CSI-2 data lane count (register encodes num_lanes - 1) */
+	ret = video_modify_cci_reg(i2c, MAX96717_REG_MIPI_RX1,
+				   MAX96717_MIPI_RX1_CTRL_NUM_LANES,
+				   FIELD_PREP(MAX96717_MIPI_RX1_CTRL_NUM_LANES,
+					      num_lanes - 1));
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Enable non-continuous clock mode (required by most camera sensors) */
+	ret = video_modify_cci_reg(i2c, MAX96717_REG_MIPI_RX0,
+				   MAX96717_MIPI_RX0_NONCONTCLK_EN,
+				   MAX96717_MIPI_RX0_NONCONTCLK_EN);
+	if (ret < 0) {
+		return ret;
+	}
+
+	LOG_DBG("MIPI RX PHY: %u data lanes, non-continuous clock", num_lanes);
+	return 0;
+}
+
+/*
+ * Configure the serializer to forward CSI-2 input from an external sensor
+ * over the GMSL link. Uses pipeline mode (not tunnel mode) so the
+ * deserializer receives proper video-pipe data and can assert VID_LOCK.
+ *
+ * This mirrors the PATGEN setup in max96717_init() but adapted for
+ * external CSI-2 input: AUTO_BPP detects the bits-per-pixel from the
+ * CSI-2 clock, and the data type is set from the sensor's pixel format.
+ */
+static int max96717_configure_csi_passthrough(const struct i2c_dt_spec *i2c,
+					      uint8_t csi2_dt, uint8_t num_lanes)
+{
+	const int p = MAX96717_PIPE_HW_ID;
+	int ret;
+
+	/* Configure CSI-2 RX PHY for external sensor input */
+	ret = max96717_configure_csi_rx_phy(i2c, num_lanes);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Disable tunnel mode — route through FRONTTOP pipeline */
+	ret = video_modify_cci_reg(i2c, MAX96717_REG_EXT11,
+				   MAX96717_EXT11_TUN_MODE, 0);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Enable AUTO_BPP — detect from CSI-2 input */
+	ret = video_modify_cci_reg(i2c, MAX96717_REG_VIDEO_TX0(p),
+				   MAX96717_VIDEO_TX0_AUTO_BPP,
+				   MAX96717_VIDEO_TX0_AUTO_BPP);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Disable SOFT_BPP override — AUTO_BPP handles it */
+	ret = video_modify_cci_reg(i2c, MAX96717_REG_FRONTTOP_20(p),
+				   MAX96717_FRONTTOP_20_SOFT_BPP_EN, 0);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Set CSI-2 data type so the GMSL packets have a valid DT header */
+	ret = video_write_cci_reg(i2c,
+				  MAX96717_REG_FRONTTOP_12(p, 0),
+				  FIELD_PREP(MAX96717_FRONTTOP_12_MEM_DT_SEL,
+					     csi2_dt) |
+				  MAX96717_FRONTTOP_12_MEM_DT_EN);
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Start pipe output through FRONTTOP */
+	ret = video_modify_cci_reg(i2c, MAX96717_REG_FRONTTOP_0,
+				   MAX96717_FRONTTOP_0_START_PORT(p),
+				   MAX96717_FRONTTOP_0_START_PORT(p));
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Route pipe → PHY 1 (GMSL link) */
+	ret = video_modify_cci_reg(i2c, MAX96717_REG_FRONTTOP_9,
+				   MAX96717_FRONTTOP_9_START_PORT(p, 1),
+				   MAX96717_FRONTTOP_9_START_PORT(p, 1));
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* GMSL stream ID = 0 — deserializer pipe 0 expects stream 0, link A */
+	ret = video_modify_cci_reg(i2c, MAX96717_REG_TX3(p),
+				   MAX96717_TX3_TX_STR_SEL,
+				   FIELD_PREP(MAX96717_TX3_TX_STR_SEL, 0));
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Enable video TX on the pipe */
+	ret = video_modify_cci_reg(i2c, MAX96717_REG_REG2,
+				   MAX96717_REG2_VID_TX_EN_P(p),
+				   MAX96717_REG2_VID_TX_EN_P(p));
+	if (ret < 0) {
+		return ret;
+	}
+
+	LOG_INF("MAX96717 CSI-2 passthrough on pipe %d (DT=0x%02X)", p, csi2_dt);
+	return 0;
+}
+
+static int max96717_set_stream(const struct device *dev, bool enable, enum video_buf_type type)
+{
+	const struct max96717_config *cfg = dev->config;
+	struct max96717_data *data = dev->data;
+	int ret;
+
+	if (cfg->source_dev == NULL) {
+		return 0;
+	}
+
+	if (enable) {
+		uint8_t dt = max96717_pixfmt_to_csi2_dt(data->fmt.pixelformat);
+
+		if (dt == 0) {
+			LOG_ERR("Unsupported format %s for CSI-2 passthrough",
+				VIDEO_FOURCC_TO_STR(data->fmt.pixelformat));
+			return -ENOTSUP;
+		}
+
+		ret = max96717_configure_csi_passthrough(&cfg->i2c, dt,
+						cfg->csi_rx_num_lanes);
+		if (ret < 0) {
+			LOG_ERR("CSI passthrough configure failed (err %d)", ret);
+			return ret;
+		}
+
+		return video_stream_start(cfg->source_dev, type);
+	}
+
+	/* Disable video TX */
+	(void)video_modify_cci_reg(&cfg->i2c, MAX96717_REG_REG2,
+				   MAX96717_REG2_VID_TX_EN_P(MAX96717_PIPE_HW_ID), 0);
+	return video_stream_stop(cfg->source_dev, type);
+}
+
+static DEVICE_API(video, max96717_api) = {
+	.get_caps = max96717_get_caps,
+	.get_format = max96717_get_format,
+	.set_format = max96717_set_format,
+	.set_stream = max96717_set_stream,
+};
+
+/* Resolve upstream source device from CSI input port@0.                       \
+ * When no sensor is wired (e.g. PATGEN mode), port@0 does not exist           \
+ * and src_dev is NULL — the MAX96717 itself is the frame source.              \
+ */
+#define SOURCE_DEV(inst)                                                                  \
+	COND_CODE_1(                                                                               \
+		DT_NODE_EXISTS(DT_INST_ENDPOINT_BY_ID(inst, 0, 0)),                                \
+		(DEVICE_DT_GET(DT_NODE_REMOTE_DEVICE(DT_INST_ENDPOINT_BY_ID(inst, 0, 0)))),        \
+		(NULL))
+
+/* Number of CSI-2 data lanes from port@0 endpoint data-lanes property.        \
+ * When port@0 has no endpoint (PATGEN mode), defaults to 0 (unused).          \
+ */
+#define CSI_RX_NUM_LANES(inst)                                                             \
+	COND_CODE_1(                                                                               \
+		DT_NODE_EXISTS(DT_INST_ENDPOINT_BY_ID(inst, 0, 0)),                                \
+		(DT_PROP_LEN(DT_INST_ENDPOINT_BY_ID(inst, 0, 0), data_lanes)),                    \
+		(0))
 
 #define MAX96717_INIT(inst)                                                                        \
 	static const struct max96717_config max96717_config_##inst = {                             \
 		.i2c = I2C_DT_SPEC_INST_GET(inst),                                                 \
+		.source_dev = SOURCE_DEV(inst),                                                    \
+		.csi_rx_num_lanes = CSI_RX_NUM_LANES(inst),                                        \
 	};                                                                                         \
 	static struct max96717_data max96717_data_##inst;                                          \
                                                                                                    \
@@ -543,6 +795,7 @@ static DEVICE_API(video, max96717_api) = {};
 			      &max96717_config_##inst, POST_KERNEL,                                \
 			      CONFIG_VIDEO_MAX96717_INIT_PRIORITY, &max96717_api);                 \
                                                                                                    \
-	VIDEO_DEVICE_DEFINE(max96717_##inst, DEVICE_DT_INST_GET(inst), NULL);
+	VIDEO_DEVICE_DEFINE(max96717_##inst, DEVICE_DT_INST_GET(inst),                             \
+			    SOURCE_DEV(inst));
 
 DT_INST_FOREACH_STATUS_OKAY(MAX96717_INIT)

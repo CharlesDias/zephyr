@@ -15,7 +15,15 @@ Requirements
 Building and Running
 ********************
 
-GMSL tunnel diagnostic mode (default) — IMX219 sensor over the GMSL2 link:
+IMX219 sensor capture mode (default)
+=====================================
+
+Captures frames from an IMX219 sensor wired through the full GMSL2 pipeline
+(IMX219 → MAX96717 serializer → GMSL2 coax → MAX96724 deserializer → MIPI
+CSI-2 → DCMIPP → LTDC display). Requires the GMSL2 coax cable and a
+Raspberry Pi Camera Module 2 connected to the MAX96717 serializer board.
+
+Build and flash:
 
 .. code-block:: console
 
@@ -24,6 +32,27 @@ GMSL tunnel diagnostic mode (default) — IMX219 sensor over the GMSL2 link:
       --shield adi_gmsl2_camera_bridge \
       samples/drivers/video/adi_gmsl2_camera_bridge \
       -- -DDTC_OVERLAY_FILE="boards/adi_gmsl2_camera_bridge_1x_imx219.overlay"
+    west flash
+
+To enable the IMX219's built-in test pattern (e.g. 100% color bars,
+index 2) instead of the live camera feed:
+
+.. code-block:: console
+
+    west build -p -b stm32n6570_dk//fsbl \
+      --shield raspberry_pi_camera_module_2 \
+      --shield adi_gmsl2_camera_bridge \
+      samples/drivers/video/adi_gmsl2_camera_bridge \
+      -- -DDTC_OVERLAY_FILE="boards/adi_gmsl2_camera_bridge_1x_imx219.overlay" \
+         -DCONFIG_APP_TEST_PATTERN=2
+    west flash
+
+Expected results:
+
+* UART logs show all chips probed and the GMSL2 link locked.
+* ``Capture started`` and periodic per-frame lines.
+* The LTDC display shows the live camera image (or color bars when using
+  ``CONFIG_APP_TEST_PATTERN=2``).
 
 Deserializer VPG (TPG) validation mode
 =======================================
@@ -131,11 +160,13 @@ passthrough mode (no silent fallback to the internal VPG).
 Sample Output
 *************
 
-Default (diagnostic) mode:
+Default (IMX219 capture) mode:
 
 .. code-block:: console
 
-    [00:00:00.000,000] <inf> main: GMSL tunnel validation start
+    [00:00:00.000,000] <inf> main: GMSL2 camera bridge — capture start
+    [00:00:00.123,000] <inf> main: Capture started
+    [00:00:00.156,000] <inf> main: Frame 0: 1152000 bytes, ts=156 ms (delta 156 ms)
 
 VPG mode:
 

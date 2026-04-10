@@ -11,6 +11,14 @@ config APP_TPG_MODE
 	  bypassing the GMSL link, serializer and camera sensor. Used to
 	  validate the host-side CSI-2 + DCMIPP + display path in isolation.
 
+config APP_TEST_PATTERN
+	int "Test pattern index (0 = off)"
+	default 0
+	help
+	  Set the VIDEO_CID_TEST_PATTERN control on the sensor at startup.
+	  0 disables the test pattern (normal sensor output).
+	  Sensor-specific values: for IMX219, 2 = 100%% color bars.
+
 source "Kconfig.zephyr"
 
 module = APP

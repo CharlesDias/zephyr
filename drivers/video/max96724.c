@@ -269,6 +269,7 @@ static const char *max96724_variant_model(uint8_t id)
 
 struct max96724_config {
 	struct i2c_dt_spec i2c;
+	const struct device *source_dev;
 };
 
 struct max96724_data {
@@ -323,7 +324,7 @@ static int max96724_check_link_lock(const struct i2c_dt_spec *i2c)
 		{MAX96724_REG_CTRL13, "C"},
 		{MAX96724_REG_CTRL14, "D"},
 	};
-	bool any_locked = false;
+	uint8_t locked_mask = 0;
 
 	LOG_WRN("Not all enabled GMSL2 links locked — checking individually:");
 
@@ -336,10 +337,33 @@ static int max96724_check_link_lock(const struct i2c_dt_spec *i2c)
 
 		if (val & MAX96724_CTRL_LOCKED) {
 			LOG_INF("  Link %s: locked", links[l].name);
-			any_locked = true;
+			locked_mask |= BIT(l);
 		} else {
 			LOG_WRN("  Link %s: not locked", links[l].name);
 		}
+	}
+
+	/*
+	 * Disable unlocked links so LOCK_PIN asserts for the connected subset
+	 * and ERRB does not fire for links that have no cable attached.
+	 */
+	if (locked_mask != 0 && locked_mask != MAX96724_REG6_LINK_EN_MASK) {
+		ret = video_modify_cci_reg(i2c, MAX96724_REG_REG6,
+					   MAX96724_REG6_LINK_EN_MASK, locked_mask);
+		if (ret < 0) {
+			LOG_ERR("Failed to set link enable mask (err %d)", ret);
+			return ret;
+		}
+		LOG_INF("Disabled unlocked links (LINK_EN=0x%02X)", locked_mask);
+
+		/* One-shot reset to re-evaluate link status with new mask */
+		ret = video_modify_cci_reg(i2c, MAX96724_REG_CTRL1,
+					   MAX96724_CTRL1_RESET_ONESHOT,
+					   locked_mask);
+		if (ret < 0) {
+			return ret;
+		}
+		k_msleep(50);
 	}
 
 	/* Re-read CTRL3 for the error bit (individual link regs don't carry it) */
@@ -348,7 +372,7 @@ static int max96724_check_link_lock(const struct i2c_dt_spec *i2c)
 		LOG_WRN("ERRB asserted — check GMSL link integrity");
 	}
 
-	if (any_locked) {
+	if (locked_mask != 0) {
 		return 0;
 	}
 
@@ -631,10 +655,15 @@ static int max96724_csi2_configure(const struct i2c_dt_spec *i2c)
 
 static int max96724_get_caps(const struct device *dev, struct video_caps *caps)
 {
-	ARG_UNUSED(dev);
+	const struct max96724_config *cfg = dev->config;
 
 	if (caps->type != VIDEO_BUF_TYPE_OUTPUT) {
 		return -EINVAL;
+	}
+
+	/* Forward to source when in passthrough mode */
+	if (cfg->source_dev != NULL) {
+		return video_get_caps(cfg->source_dev, caps);
 	}
 
 	caps->format_caps = max96724_fmts;
@@ -644,7 +673,13 @@ static int max96724_get_caps(const struct device *dev, struct video_caps *caps)
 
 static int max96724_get_format(const struct device *dev, struct video_format *fmt)
 {
+	const struct max96724_config *cfg = dev->config;
 	struct max96724_data *data = dev->data;
+
+	/* Forward to source when in passthrough mode */
+	if (cfg->source_dev != NULL) {
+		return video_get_format(cfg->source_dev, fmt);
+	}
 
 	*fmt = data->fmt;
 	return 0;
@@ -652,14 +687,28 @@ static int max96724_get_format(const struct device *dev, struct video_format *fm
 
 static int max96724_set_format(const struct device *dev, struct video_format *fmt)
 {
+	const struct max96724_config *cfg = dev->config;
 	struct max96724_data *data = dev->data;
+	int ret;
 
-	if (fmt->pixelformat != VIDEO_PIX_FMT_BGR24 ||
-	    fmt->width != MAX96724_TPG_HACTIVE ||
-	    fmt->height != MAX96724_TPG_VACTIVE) {
-		LOG_ERR("Format %s %ux%u not supported by VPG MVP",
-			VIDEO_FOURCC_TO_STR(fmt->pixelformat), fmt->width, fmt->height);
-		return -ENOTSUP;
+	if (IS_ENABLED(CONFIG_VIDEO_MAX96724_VPG_INTERNAL)) {
+		/* VPG mode: only the hard-coded 800x480 BGR24 is supported */
+		if (fmt->pixelformat != VIDEO_PIX_FMT_BGR24 ||
+		    fmt->width != MAX96724_TPG_HACTIVE ||
+		    fmt->height != MAX96724_TPG_VACTIVE) {
+			LOG_ERR("Format %s %ux%u not supported by VPG",
+				VIDEO_FOURCC_TO_STR(fmt->pixelformat),
+				fmt->width, fmt->height);
+			return -ENOTSUP;
+		}
+	}
+
+	/* Forward to the upstream source device if present */
+	if (cfg->source_dev != NULL) {
+		ret = video_set_format(cfg->source_dev, fmt);
+		if (ret < 0) {
+			return ret;
+		}
 	}
 
 	data->fmt = *fmt;
@@ -691,6 +740,12 @@ static int max96724_set_stream(const struct device *dev, bool enable, enum video
 					   MAX96724_BACKTOP12_CSI_OUT_EN, 0);
 		(void)video_modify_cci_reg(&cfg->i2c, MAX96724_REG_MIPI_PHY0,
 					   MAX96724_MIPI_PHY0_FORCE_CSI_OUT, 0);
+
+		/* Stop the upstream source after disabling local output */
+		if (cfg->source_dev != NULL) {
+			(void)video_stream_stop(cfg->source_dev, type);
+		}
+
 		data->streaming = false;
 		return 0;
 	}
@@ -749,6 +804,15 @@ static int max96724_set_stream(const struct device *dev, bool enable, enum video
 		return ret;
 	}
 #endif
+
+	/* Start the upstream source before enabling local output */
+	if (cfg->source_dev != NULL) {
+		ret = video_stream_start(cfg->source_dev, type);
+		if (ret < 0) {
+			LOG_ERR("Failed to start source (err %d)", ret);
+			return ret;
+		}
+	}
 
 	/* Enable pipe 0 only */
 	ret = video_modify_cci_reg(&cfg->i2c, MAX96724_REG_VIDEO_PIPE_EN,
@@ -920,9 +984,17 @@ static int max96724_init(const struct device *dev)
 	return 0;
 }
 
+#define SOURCE_DEV(inst)                                                                   \
+	COND_CODE_1(                                                                               \
+		DT_NODE_HAS_STATUS_OKAY(                                                           \
+			DT_NODE_REMOTE_DEVICE(DT_INST_ENDPOINT_BY_ID(inst, 0, 0))),                \
+		(DEVICE_DT_GET(DT_NODE_REMOTE_DEVICE(DT_INST_ENDPOINT_BY_ID(inst, 0, 0)))),        \
+		(NULL))
+
 #define MAX96724_INIT(inst)                                                                        \
 	static const struct max96724_config max96724_config_##inst = {                             \
 		.i2c = I2C_DT_SPEC_INST_GET(inst),                                                 \
+		.source_dev = SOURCE_DEV(inst),                                                    \
 	};                                                                                         \
 	static struct max96724_data max96724_data_##inst;                                          \
                                                                                                    \
@@ -930,6 +1002,10 @@ static int max96724_init(const struct device *dev)
 			      &max96724_config_##inst, POST_KERNEL,                                \
 			      CONFIG_VIDEO_MAX96724_INIT_PRIORITY, &max96724_api);                 \
                                                                                                    \
-	VIDEO_DEVICE_DEFINE(max96724_##inst, DEVICE_DT_INST_GET(inst), NULL);
+	/* src_dev for control propagation — same resolution as config.source_dev  \
+	 * NULL when the serializer is disabled (deserializer-only TPG mode).      \
+	 */                                                                        \
+	VIDEO_DEVICE_DEFINE(max96724_##inst, DEVICE_DT_INST_GET(inst),            \
+			    SOURCE_DEV(inst));
 
 DT_INST_FOREACH_STATUS_OKAY(MAX96724_INIT)
