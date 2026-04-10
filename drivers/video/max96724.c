@@ -22,6 +22,10 @@ LOG_MODULE_REGISTER(video_max96724, CONFIG_VIDEO_LOG_LEVEL);
 
 /* Device identification and link status */
 #define MAX96724_REG_DEVID        MAX96724_REG8(0x000D)
+#define MAX96724_REG_REG6         MAX96724_REG8(0x0006)
+#define MAX96724_REG6_LINK_EN_MASK GENMASK(3, 0)
+#define MAX96724_REG_CTRL1        MAX96724_REG8(0x0018)
+#define MAX96724_CTRL1_RESET_ONESHOT GENMASK(3, 0)
 #define MAX96724_REG_CTRL12       MAX96724_REG8(0x000A)
 #define MAX96724_REG_CTRL13       MAX96724_REG8(0x000B)
 #define MAX96724_REG_CTRL14       MAX96724_REG8(0x000C)
@@ -31,6 +35,10 @@ LOG_MODULE_REGISTER(video_max96724, CONFIG_VIDEO_LOG_LEVEL);
 #define MAX96724_CTRL3_CMU_LOCKED BIT(1)
 #define MAX96724_CTRL3_LOCK_PIN   BIT(0)
 #define MAX96724_CTRL_LOCKED      BIT(3)
+
+/* Per-pipe video lock status */
+#define MAX96724_REG_VIDEO_RX8(p) MAX96724_REG8(0x0108 + (p) * 0x12)
+#define MAX96724_VIDEO_RX8_VID_LOCK BIT(0)
 
 /*
  * Video Pattern Generator (VPG / "TPG") and CSI-2 output registers.
@@ -48,8 +56,9 @@ LOG_MODULE_REGISTER(video_max96724, CONFIG_VIDEO_LOG_LEVEL);
 #define MAX96724_DEBUG_EXTRA_PCLK_75MHZ    0x1
 #define MAX96724_DEBUG_EXTRA_PCLK_USE_PIPE 0x2
 
-/* Per-pipe VPG clock select (PATGEN_CLK_SRC, bit 7 of VPRBS) */
+/* Per-pipe VPG clock select and video lock (VPRBS register) */
 #define MAX96724_REG_VPRBS(p)              MAX96724_REG8(0x01DC + (p) * 0x20)
+#define MAX96724_VPRBS_VIDEO_LOCK          BIT(0)
 #define MAX96724_VPRBS_PATGEN_CLK_SRC      BIT(7)
 
 /* Video pipe enable */
@@ -81,6 +90,34 @@ LOG_MODULE_REGISTER(video_max96724, CONFIG_VIDEO_LOG_LEVEL);
 #define MAX96724_REG_MIPI_CTRL_SEL         MAX96724_REG8(0x08CA)
 #define MAX96724_MIPI_CTRL_SEL_MASK(p)     (GENMASK(1, 0) << ((p) * 2))
 #define MAX96724_MIPI_CTRL_SEL_PIPE(p, c)  ((c) << ((p) * 2))
+
+/*
+ * Per-PHY MIPI TX mapping table — routes GMSL pipe data to CSI-2 output.
+ * In VPG mode the pattern generator bypasses this table, but passthrough
+ * mode requires an explicit SRC_DT → DST_DT mapping entry.
+ */
+#define MAX96724_REG_MIPI_TX11(p)          MAX96724_REG8(0x090B + (p) * 0x40)
+#define MAX96724_REG_MIPI_TX13(p, x)       MAX96724_REG8(0x090D + (p) * 0x40 + (x) * 0x2)
+#define MAX96724_MIPI_TX13_MAP_SRC_DT_MASK GENMASK(5, 0)
+#define MAX96724_REG_MIPI_TX14(p, x)       MAX96724_REG8(0x090E + (p) * 0x40 + (x) * 0x2)
+#define MAX96724_MIPI_TX14_MAP_DST_DT_MASK GENMASK(5, 0)
+#define MAX96724_REG_MIPI_TX45(p, x)       MAX96724_REG8(0x092D + (p) * 0x40 + (x) / 4)
+#define MAX96724_MIPI_TX45_MAP_DPHY_DEST(x) (GENMASK(1, 0) << (2 * ((x) % 4)))
+
+/*
+ * Per-pipe tunnel mode registers. MIPI_TX54/57 addresses use the pipe
+ * index (which equals the default controller index) with stride 0x40.
+ */
+#define MAX96724_REG_MIPI_TX54(p)          MAX96724_REG8(0x0936 + (p) * 0x40)
+#define MAX96724_MIPI_TX54_TUN_EN          BIT(0)
+
+#define MAX96724_REG_MIPI_TX57(p)          MAX96724_REG8(0x0939 + (p) * 0x40)
+#define MAX96724_MIPI_TX57_DIS_AUTO_TUN_DET BIT(6)
+
+/* Video pipe source selection */
+#define MAX96724_REG_VIDEO_PIPE_SEL(p)     MAX96724_REG8(0x00F0 + (p) / 2)
+
+#define MIPI_CSI2_DT_RGB888 0x24
 
 /* DPLL frequency (BACKTOP22) */
 #define MAX96724_REG_BACKTOP22(x)          MAX96724_REG8(0x0415 + (x) * 0x3)
@@ -286,6 +323,7 @@ static int max96724_check_link_lock(const struct i2c_dt_spec *i2c)
 		{MAX96724_REG_CTRL13, "C"},
 		{MAX96724_REG_CTRL14, "D"},
 	};
+	bool any_locked = false;
 
 	LOG_WRN("Not all enabled GMSL2 links locked — checking individually:");
 
@@ -298,13 +336,20 @@ static int max96724_check_link_lock(const struct i2c_dt_spec *i2c)
 
 		if (val & MAX96724_CTRL_LOCKED) {
 			LOG_INF("  Link %s: locked", links[l].name);
+			any_locked = true;
 		} else {
 			LOG_WRN("  Link %s: not locked", links[l].name);
 		}
 	}
 
-	if (val & MAX96724_CTRL3_ERROR) {
+	/* Re-read CTRL3 for the error bit (individual link regs don't carry it) */
+	ret = video_read_cci_reg(i2c, MAX96724_REG_CTRL3, &val);
+	if (ret == 0 && (val & MAX96724_CTRL3_ERROR)) {
 		LOG_WRN("ERRB asserted — check GMSL link integrity");
+	}
+
+	if (any_locked) {
+		return 0;
 	}
 
 	return -ENODEV;
@@ -374,7 +419,7 @@ static int max96724_write_gradient_pattern(const struct i2c_dt_spec *i2c)
 	 * to 16 to land at least two full cycles across hactive: gives a
 	 * denser bar pattern that's easier to eyeball for tearing/jitter.
 	 */
-	return video_write_cci_reg(i2c, MAX96724_REG_GRAD_INCR, 16);
+	return video_write_cci_reg(i2c, MAX96724_REG_GRAD_INCR, 8);
 }
 
 static int max96724_write_checkerboard_pattern(const struct i2c_dt_spec *i2c)
@@ -527,10 +572,61 @@ static int max96724_csi2_configure(const struct i2c_dt_spec *i2c)
 		return ret;
 	}
 
-	/* Bring PHY1 out of standby (2-lane mode bit) */
-	return video_modify_cci_reg(i2c, MAX96724_REG_MIPI_PHY2,
-				    MAX96724_MIPI_PHY2_PHY_STDB_2(MAX96724_TPG_PHY_INDEX),
-				    MAX96724_MIPI_PHY2_PHY_STDB_2(MAX96724_TPG_PHY_INDEX));
+	/* Bring PHY out of standby (2-lane mode bit) */
+	ret = video_modify_cci_reg(i2c, MAX96724_REG_MIPI_PHY2,
+				   MAX96724_MIPI_PHY2_PHY_STDB_2(MAX96724_TPG_PHY_INDEX),
+				   MAX96724_MIPI_PHY2_PHY_STDB_2(MAX96724_TPG_PHY_INDEX));
+	if (ret < 0) {
+		return ret;
+	}
+
+#if !IS_ENABLED(CONFIG_VIDEO_MAX96724_VPG_INTERNAL)
+	/*
+	 * Passthrough mode: configure the MIPI TX mapping table so the
+	 * deserializer knows how to forward GMSL pipe data to CSI-2.
+	 * In VPG mode the pattern generator injects data directly,
+	 * bypassing this table entirely.
+	 *
+	 * IMPORTANT: the MIPI TX mapping table registers (TX11/13/14/45) are
+	 * per-pipe, not per-controller. They must be indexed by the pipe
+	 * number (0), not the PHY/controller index. MIPI_CTRL_SEL then
+	 * routes the pipe's mapped output to the physical controller.
+	 * Ref: Linux max96724_set_pipe_remap() uses pipe->index.
+	 *
+	 * Mapping entry 0: SRC_DT=RGB888 → DST_DT=RGB888, VC 0 → VC 0,
+	 * routed to the D-PHY associated with our MIPI controller.
+	 */
+	ret = video_write_cci_reg(i2c, MAX96724_REG_MIPI_TX13(0, 0),
+				  FIELD_PREP(MAX96724_MIPI_TX13_MAP_SRC_DT_MASK,
+					     MIPI_CSI2_DT_RGB888));
+	if (ret < 0) {
+		return ret;
+	}
+
+	ret = video_write_cci_reg(i2c, MAX96724_REG_MIPI_TX14(0, 0),
+				  FIELD_PREP(MAX96724_MIPI_TX14_MAP_DST_DT_MASK,
+					     MIPI_CSI2_DT_RGB888));
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Route mapping entry 0 to D-PHY MAX96724_TPG_PHY_INDEX */
+	ret = video_modify_cci_reg(i2c, MAX96724_REG_MIPI_TX45(0, 0),
+				   MAX96724_MIPI_TX45_MAP_DPHY_DEST(0),
+				   FIELD_PREP(MAX96724_MIPI_TX45_MAP_DPHY_DEST(0),
+					      MAX96724_TPG_PHY_INDEX));
+	if (ret < 0) {
+		return ret;
+	}
+
+	/* Enable mapping entry 0 */
+	ret = video_write_cci_reg(i2c, MAX96724_REG_MIPI_TX11(0), BIT(0));
+	if (ret < 0) {
+		return ret;
+	}
+#endif
+
+	return 0;
 }
 
 static int max96724_get_caps(const struct device *dev, struct video_caps *caps)
@@ -599,24 +695,62 @@ static int max96724_set_stream(const struct device *dev, bool enable, enum video
 		return 0;
 	}
 
+	/*
+	 * Passthrough mode: the GMSL link is already locked from probe time
+	 * and the serializer is already streaming PATGEN data. Do NOT issue
+	 * RESET_ONESHOT here — it would disrupt the working link and kill
+	 * the serializer's video flow. Just configure the pipe routing and
+	 * CSI-2 output.
+	 */
+
+	/*
+	 * Disable CSI-2 output and pipe 0 before reconfiguring.
+	 * The Linux driver always does disable → configure → re-enable.
+	 * Without this toggle, the PHY/DPLL may not pick up the new
+	 * configuration if CSI_OUT_EN was already asserted from reset.
+	 */
+	ret = video_modify_cci_reg(&cfg->i2c, MAX96724_REG_BACKTOP12,
+				   MAX96724_BACKTOP12_CSI_OUT_EN, 0);
+	if (ret < 0) {
+		return ret;
+	}
+
+	ret = video_modify_cci_reg(&cfg->i2c, MAX96724_REG_VIDEO_PIPE_EN,
+				   MAX96724_VIDEO_PIPE_EN_MASK, 0);
+	if (ret < 0) {
+		return ret;
+	}
+
+#if !IS_ENABLED(CONFIG_VIDEO_MAX96724_VPG_INTERNAL)
+	/*
+	 * Map pipe 0 → link A, stream 0. The power-on default maps pipe 0
+	 * to stream 2 (VIDEO_PIPE_SEL = 0x62), but the serializer PATGEN
+	 * sends on stream 0. Without this fix VID_LOCK never asserts.
+	 */
+	ret = video_modify_cci_reg(&cfg->i2c, MAX96724_REG_VIDEO_PIPE_SEL(0),
+				   GENMASK(3, 0),  /* pipe 0: stream[1:0] + link[3:2] */
+				   0x00);          /* stream 0, link A */
+	if (ret < 0) {
+		return ret;
+	}
+#endif
+
+	/* CSI-2 PHY/DPLL configuration */
 	ret = max96724_csi2_configure(&cfg->i2c);
 	if (ret < 0) {
 		LOG_ERR("CSI-2 configure failed (err %d)", ret);
 		return ret;
 	}
 
+#if IS_ENABLED(CONFIG_VIDEO_MAX96724_VPG_INTERNAL)
 	ret = max96724_vpg_configure(&cfg->i2c);
 	if (ret < 0) {
 		LOG_ERR("VPG configure failed (err %d)", ret);
 		return ret;
 	}
+#endif
 
-	/*
-	 * Enable pipe 0 only and disable pipes 1, 2, 3. The VPG broadcasts
-	 * data into every pipe, so we keep just pipe 0 active and let the
-	 * other pipes drop their copies. Bit 4 (STREAM_SEL_ALL) is preserved
-	 * — it is not a pipe-enable bit.
-	 */
+	/* Enable pipe 0 only */
 	ret = video_modify_cci_reg(&cfg->i2c, MAX96724_REG_VIDEO_PIPE_EN,
 				   MAX96724_VIDEO_PIPE_EN_MASK,
 				   MAX96724_VIDEO_PIPE_EN_PIPE(0));
@@ -624,7 +758,11 @@ static int max96724_set_stream(const struct device *dev, bool enable, enum video
 		return ret;
 	}
 
-	/* Force CSI-2 output even with no incoming GMSL link (VPG-only mode). */
+	/*
+	 * Force CSI-2 output. Required in VPG mode (no incoming GMSL data).
+	 * Also needed in passthrough mode to kickstart the CSI-2 PHY — the
+	 * PHY does not auto-start from pipe data alone.
+	 */
 	ret = video_modify_cci_reg(&cfg->i2c, MAX96724_REG_MIPI_PHY0,
 				   MAX96724_MIPI_PHY0_FORCE_CSI_OUT,
 				   MAX96724_MIPI_PHY0_FORCE_CSI_OUT);
@@ -632,7 +770,7 @@ static int max96724_set_stream(const struct device *dev, bool enable, enum video
 		return ret;
 	}
 
-	/* Enable the global CSI-2 transmitter. */
+	/* Re-enable the global CSI-2 transmitter */
 	ret = video_modify_cci_reg(&cfg->i2c, MAX96724_REG_BACKTOP12,
 				   MAX96724_BACKTOP12_CSI_OUT_EN,
 				   MAX96724_BACKTOP12_CSI_OUT_EN);
@@ -641,8 +779,61 @@ static int max96724_set_stream(const struct device *dev, bool enable, enum video
 	}
 
 	data->streaming = true;
-	LOG_INF("MAX96724 VPG streaming started (%ux%u RGB24)",
-		MAX96724_TPG_HACTIVE, MAX96724_TPG_VACTIVE);
+
+#if !IS_ENABLED(CONFIG_VIDEO_MAX96724_VPG_INTERNAL)
+	/*
+	 * Diagnostic: poll VID_LOCK on pipe 0 via VPRBS register.
+	 * The Linux driver uses VPRBS (0x1DC + pipe*0x20) for video lock,
+	 * not VIDEO_RX8 (0x0108).
+	 */
+	{
+		uint32_t val;
+		bool locked = false;
+
+		for (int i = 0; i < 25; i++) {
+			ret = video_read_cci_reg(&cfg->i2c, MAX96724_REG_VPRBS(0), &val);
+			if (ret == 0 && (val & MAX96724_VPRBS_VIDEO_LOCK)) {
+				LOG_INF("VPRBS[0]=0x%02X VID_LOCK=1 (after %d ms)",
+					val, i * 20);
+				locked = true;
+				break;
+			}
+			k_msleep(20);
+		}
+
+		if (!locked) {
+			LOG_WRN("VPRBS[0]=0x%02X VID_LOCK=0 after 500 ms", val);
+
+			/* Dump VPRBS and VIDEO_RX8 for all pipes */
+			for (int p = 0; p < 4; p++) {
+				uint32_t vprbs, rx8;
+
+				video_read_cci_reg(&cfg->i2c, MAX96724_REG_VPRBS(p), &vprbs);
+				video_read_cci_reg(&cfg->i2c, MAX96724_REG_VIDEO_RX8(p), &rx8);
+				LOG_INF("  pipe %d: VPRBS(0x%04X)=0x%02X  VIDEO_RX8(0x%04X)=0x%02X",
+					p, 0x01DC + p * 0x20, vprbs,
+					0x0108 + p * 0x12, rx8);
+			}
+
+			/* Check link still locked */
+			ret = video_read_cci_reg(&cfg->i2c, MAX96724_REG_CTRL3, &val);
+			if (ret == 0) {
+				LOG_INF("  CTRL3=0x%02X (link_A=%s)",
+					val, (val & MAX96724_CTRL3_LOCKED_A) ? "locked" : "UNLOCKED");
+			}
+
+			/* Check pipe-to-link mapping */
+			ret = video_read_cci_reg(&cfg->i2c, MAX96724_REG_VIDEO_PIPE_SEL(0), &val);
+			if (ret == 0) {
+				LOG_INF("  VIDEO_PIPE_SEL(0x00F0)=0x%02X", val);
+			}
+		}
+	}
+#endif
+
+	LOG_INF("MAX96724 streaming started (%ux%u RGB24, %s)",
+		MAX96724_TPG_HACTIVE, MAX96724_TPG_VACTIVE,
+		IS_ENABLED(CONFIG_VIDEO_MAX96724_VPG_INTERNAL) ? "VPG" : "GMSL passthrough");
 	return 0;
 }
 
@@ -679,6 +870,29 @@ static int max96724_init(const struct device *dev)
 		if (IS_ENABLED(CONFIG_VIDEO_MAX96724_TPG_TOLERATE_NO_LINK)) {
 			LOG_WRN("No GMSL link locked — continuing (TPG/VPG mode)");
 		} else {
+			return ret;
+		}
+	}
+
+	/*
+	 * Disable automatic tunnel mode detection on all pipes and
+	 * explicitly clear tunnel enable. The Linux driver does this in
+	 * max96724_init(). Without DIS_AUTO_TUN_DET, the deserializer
+	 * tries to auto-detect tunnel vs pixel mode on the incoming GMSL
+	 * data; if auto-detection stalls or picks the wrong mode, VID_LOCK
+	 * never asserts.
+	 */
+	for (int i = 0; i < 4; i++) {
+		ret = video_modify_cci_reg(&cfg->i2c, MAX96724_REG_MIPI_TX57(i),
+					   MAX96724_MIPI_TX57_DIS_AUTO_TUN_DET,
+					   MAX96724_MIPI_TX57_DIS_AUTO_TUN_DET);
+		if (ret < 0) {
+			return ret;
+		}
+
+		ret = video_modify_cci_reg(&cfg->i2c, MAX96724_REG_MIPI_TX54(i),
+					   MAX96724_MIPI_TX54_TUN_EN, 0);
+		if (ret < 0) {
 			return ret;
 		}
 	}

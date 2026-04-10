@@ -43,6 +43,17 @@ config VIDEO_MAX96724_VPG_PATTERN_CHECKERBOARD
 
 endchoice
 
+config VIDEO_MAX96724_VPG_INTERNAL
+	bool "Run MAX96724 internal VPG as the streaming source"
+	default y
+	help
+	  When y, max96724_set_stream() programs the deserializer's own
+	  Video Pattern Generator and uses it as the CSI-2 output source
+	  (deserializer-only TPG mode). When n, the deserializer is left in
+	  passthrough mode and forwards whatever arrives over GMSL on link A
+	  out through pipe 0. Set n when running the MAX96717 PATGEN over
+	  the SerDes link.
+
 config VIDEO_MAX96724_TPG_TOLERATE_NO_LINK
 	bool "Do not fail probe when no GMSL link is locked"
 	default y

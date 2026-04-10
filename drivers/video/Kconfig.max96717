@@ -21,4 +21,26 @@ config VIDEO_MAX96717_INIT_PRIORITY
 	  higher than the deserializer's and lower than camera sensor priority
 	  to ensure proper initialization order.
 
+config VIDEO_MAX96717_PATGEN_ENABLE
+	bool "Enable MAX96717 internal Video Pattern Generator (PATGEN)"
+	default n
+	help
+	  Configure the MAX96717's internal pattern generator at probe time
+	  to emit a synthetic 800x480 RGB888 frame over GMSL. Used to
+	  validate the full SerDes path when no real image sensor is wired
+	  to the serializer.
+
+choice VIDEO_MAX96717_PATGEN_PATTERN
+	prompt "MAX96717 PATGEN test pattern"
+	depends on VIDEO_MAX96717_PATGEN_ENABLE
+	default VIDEO_MAX96717_PATGEN_PATTERN_GRADIENT
+
+config VIDEO_MAX96717_PATGEN_PATTERN_GRADIENT
+	bool "Color gradient"
+
+config VIDEO_MAX96717_PATGEN_PATTERN_CHECKERBOARD
+	bool "Checkerboard"
+
+endchoice
+
 endif
