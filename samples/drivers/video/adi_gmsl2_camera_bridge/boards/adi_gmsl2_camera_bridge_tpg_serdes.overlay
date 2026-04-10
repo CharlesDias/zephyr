@@ -1,0 +1,39 @@
+/*
+ * Copyright (c) 2026 Charles Dias
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * MAX96717 SerDes Video Pattern Generator (VPG) validation overlay.
+ *
+ * This overlay validates the full SerDes path: the MAX96717 serializer's
+ * internal PATGEN generates an 800x480 RGB888 frame, transmits it over
+ * the GMSL2 link to the MAX96724 deserializer (running in passthrough
+ * mode), which forwards it out MIPI CSI-2 to the host DCMIPP -> LTDC.
+ *
+ * Unlike the deserializer-only TPG overlay (_tpg.overlay), this variant
+ * keeps the serializer enabled — PATGEN replaces the external sensor
+ * input internally, so no camera module is needed on the serializer side.
+ * The GMSL coax cable must be connected.
+ *
+ *   west build -p -b stm32n6570_dk//fsbl \
+ *     --shield adi_gmsl2_camera_bridge \
+ *     samples/drivers/video/adi_gmsl2_camera_bridge \
+ *     -- -DDTC_OVERLAY_FILE="boards/adi_gmsl2_camera_bridge_tpg_serdes.overlay" \
+ *        -DEXTRA_CONF_FILE="boards/stm32n6570_dk_stm32n657xx_fsbl_tpg_serdes.conf"
+ */
+
+/ {
+	chosen {
+		zephyr,camera = &csi_capture_port;
+	};
+};
+
+/* Enable the host DCMIPP/CSI capture interface. */
+&csi_interface {
+	status = "okay";
+};
+
+/*
+ * Keep the serializer enabled — PATGEN drives pipe 0 internally,
+ * no parallel sensor on max96717 port@0 is needed.
+ */
